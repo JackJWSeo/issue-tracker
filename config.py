@@ -49,6 +49,7 @@ DB_PATH = get_secret("DB_PATH", str(BASE_DIR / "trump_monitor.sqlite3"))
 REQUEST_TIMEOUT = int(get_secret("REQUEST_TIMEOUT", "20"))
 OPENAI_SUMMARY_MODEL = get_secret("OPENAI_SUMMARY_MODEL", "gpt-4.1-mini")
 USE_AI_IRAN_WAR_FILTER = get_secret("USE_AI_IRAN_WAR_FILTER", "1").lower() in {"1", "true", "yes", "on"}
+LOCAL_TIMEZONE = get_secret("LOCAL_TIMEZONE", "Asia/Seoul")
 
 TARGETS = {
     "x_accounts": [

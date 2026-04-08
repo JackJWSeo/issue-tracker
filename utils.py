@@ -2,10 +2,12 @@ import hashlib
 import re
 from datetime import datetime
 from email.utils import parsedate_to_datetime
+from zoneinfo import ZoneInfo
 
 from config import (
     HIGH_PRIORITY_KEYWORDS,
     IRAN_CONFLICT_KEYWORDS,
+    LOCAL_TIMEZONE,
     IRAN_SECONDARY_TOPIC_KEYWORDS,
     IRAN_TOPIC_KEYWORDS,
     IRAN_WAR_STRICT_KEYWORDS,
@@ -66,6 +68,81 @@ def parse_dt(value: str | None):
         return parsedate_to_datetime(value)
     except Exception:
         return None
+
+
+def is_today_content(value: str | None) -> bool:
+    if not value:
+        return False
+
+    now_local = datetime.now(ZoneInfo(LOCAL_TIMEZONE))
+    text = value.strip().lower()
+
+    if text in {"just now", "now", "today"}:
+        return True
+    if text == "yesterday":
+        return False
+
+    minute_match = re.fullmatch(r"(\d+)\s*(m|min|mins|minute|minutes)", text)
+    if minute_match:
+        return True
+
+    hour_match = re.fullmatch(r"(\d+)\s*(h|hr|hrs|hour|hours)", text)
+    if hour_match:
+        hours = int(hour_match.group(1))
+        return hours < 24
+
+    day_match = re.fullmatch(r"(\d+)\s*(d|day|days)", text)
+    if day_match:
+        days = int(day_match.group(1))
+        return days == 0
+
+    dt = parse_dt(value)
+    if dt is None:
+        return False
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+
+    return dt.astimezone(ZoneInfo(LOCAL_TIMEZONE)).date() == now_local.date()
+
+
+def is_within_recent_hours(value: str | None, hours: int) -> bool:
+    if not value:
+        return False
+
+    hours = max(1, int(hours))
+    now_local = datetime.now(ZoneInfo(LOCAL_TIMEZONE))
+    text = value.strip().lower()
+
+    if text in {"just now", "now", "today"}:
+        return True
+    if text == "yesterday":
+        return hours >= 24 and False
+
+    minute_match = re.fullmatch(r"(\d+)\s*(m|min|mins|minute|minutes)", text)
+    if minute_match:
+        minutes = int(minute_match.group(1))
+        return minutes <= hours * 60
+
+    hour_match = re.fullmatch(r"(\d+)\s*(h|hr|hrs|hour|hours)", text)
+    if hour_match:
+        value_hours = int(hour_match.group(1))
+        return value_hours <= hours
+
+    day_match = re.fullmatch(r"(\d+)\s*(d|day|days)", text)
+    if day_match:
+        days = int(day_match.group(1))
+        return days == 0
+
+    dt = parse_dt(value)
+    if dt is None:
+        return False
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+
+    delta = now_local - dt.astimezone(ZoneInfo(LOCAL_TIMEZONE))
+    return 0 <= delta.total_seconds() <= hours * 3600
 
 
 def short_text(text: str, limit: int = 300) -> str:

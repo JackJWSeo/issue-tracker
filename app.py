@@ -1,6 +1,7 @@
 import asyncio
-import os
+import threading
 import time
+from collections.abc import Callable
 
 from config import (
     DB_PATH,
@@ -20,47 +21,74 @@ from sources.truth_social import fetch_truthsocial_posts
 from sources.x_monitor import fetch_x_posts
 from sources.youtube_live import fetch_youtube_live
 from sources.youtube_stt import enrich_item_with_stt_summary
-from utils import contains_iran_war_keywords, parse_dt
+from ui_settings import UISettings, load_ui_settings
+from utils import contains_iran_war_keywords, is_within_recent_hours, parse_dt
 
 
-def collect_items(db: StateDB) -> list[Item]:
+LogFn = Callable[[str], None]
+
+
+def default_log(message: str) -> None:
+    print(message)
+
+
+def apply_time_filter(
+    items: list[Item],
+    label: str,
+    settings: UISettings,
+    log: LogFn = default_log,
+) -> list[Item]:
+    if not settings.use_recent_hours_filter:
+        return items
+
+    kept = [item for item in items if is_within_recent_hours(item.published_at, settings.recent_hours)]
+    dropped = len(items) - len(kept)
+    if dropped:
+        log(
+            f"[DATE] 최근 {settings.recent_hours}시간 범위를 벗어난 {label} 항목 제외: "
+            f"dropped={dropped} kept={len(kept)}"
+        )
+    return kept
+
+
+def collect_items(db: StateDB, settings: UISettings, log: LogFn = default_log) -> list[Item]:
     results: list[Item] = []
 
     for username in TARGETS["x_accounts"]:
-        print(f"[X] 수집 시작: {username}")
+        log(f"[X] 수집 시작: {username}")
         try:
-            rows = fetch_x_posts(username, X_BEARER_TOKEN, db)
+            rows = apply_time_filter(fetch_x_posts(username, X_BEARER_TOKEN, db), f"X:{username}", settings, log=log)
             results.extend(rows)
-            print(f"[X] 수집 완료: {username} items={len(rows)}")
+            log(f"[X] 수집 완료: {username} items={len(rows)}")
         except Exception as e:
-            print(f"[X] {username} 실패: {e}")
+            log(f"[X] {username} 실패: {e}")
 
     for username in TARGETS["truthsocial_accounts"]:
-        print(f"[TRUTH] 수집 시작: {username}")
+        log(f"[TRUTH] 수집 시작: {username}")
         try:
-            rows = fetch_truthsocial_posts(username, db)
+            rows = apply_time_filter(fetch_truthsocial_posts(username, db), f"TRUTH:{username}", settings, log=log)
             results.extend(rows)
-            print(f"[TRUTH] 수집 완료: {username} items={len(rows)}")
+            log(f"[TRUTH] 수집 완료: {username} items={len(rows)}")
         except Exception as e:
-            print(f"[TRUTH] {username} 실패: {e}")
+            log(f"[TRUTH] {username} 실패: {e}")
 
     for query in TARGETS["youtube_queries"]:
-        print(f"[YT] 수집 시작: {query}")
+        log(f"[YT] 수집 시작: {query}")
         try:
-            rows = fetch_youtube_live(query, YOUTUBE_API_KEY)
+            rows = apply_time_filter(fetch_youtube_live(query, YOUTUBE_API_KEY), f"YT:{query}", settings, log=log)
             results.extend(rows)
-            print(f"[YT] 수집 완료: {query} items={len(rows)}")
+            log(f"[YT] 수집 완료: {query} items={len(rows)}")
         except Exception as e:
-            print(f"[YT] {query} 실패: {e}")
+            log(f"[YT] {query} 실패: {e}")
 
     for query in TARGETS["news_queries"]:
-        print(f"[NEWS] 수집 시작: {query}")
+        log(f"[NEWS] 수집 시작: {query}")
         try:
-            rows = fetch_google_news_rss(query)
+            rows = apply_time_filter(fetch_google_news_rss(query), f"NEWS:{query}", settings, log=log)
             results.extend(rows)
-            print(f"[NEWS] 수집 완료: {query} items={len(rows)}")
+            log(f"[NEWS] 수집 완료: {query} items={len(rows)}")
         except Exception as e:
-            print(f"[NEWS] {query} 실패: {e}")
+            log(f"[NEWS] {query} 실패: {e}")
 
     def sort_key(item: Item):
         dt = parse_dt(item.published_at)
@@ -71,38 +99,32 @@ def collect_items(db: StateDB) -> list[Item]:
     return results
 
 
-async def monitor_loop():
+async def monitor_loop(
+    stop_event: threading.Event | None = None,
+    log: LogFn = default_log,
+    settings: UISettings | None = None,
+):
     db = StateDB(DB_PATH)
     notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
     ai_client = None
+    settings = settings or load_ui_settings()
     if OPENAI_API_KEY:
-        try:
-            from openai import DefaultHttpxClient, OpenAI
+        log("[INFO] AI 요약 기능은 주석 처리되어 비활성화됨")
 
-            proxy_vars = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"]
-            active_proxies = {name: os.getenv(name, "") for name in proxy_vars if os.getenv(name)}
-            if active_proxies:
-                print(f"[INFO] OpenAI 호출 시 시스템 프록시 무시: {active_proxies}")
+    log("[START] Trump Monitor 시작")
+    log(f"[INFO] poll={POLL_SECONDS}s db={DB_PATH}")
 
-            ai_client = OpenAI(
-                api_key=OPENAI_API_KEY,
-                http_client=DefaultHttpxClient(trust_env=False),
-            )
-        except Exception as e:
-            print(f"[WARN] openai SDK 로드 실패: {e}")
-            print("[WARN] 요약 기능 없이 계속 실행합니다. python -m pip install openai 로 설치 가능")
-
-    print("[START] Trump Monitor 시작")
-    print(f"[INFO] poll={POLL_SECONDS}s db={DB_PATH}")
-
-    while True:
+    while stop_event is None or not stop_event.is_set():
         try:
             cycle_started_at = time.time()
-            print("[LOOP] 새 수집 사이클 시작")
-            items = collect_items(db)
+            log("[LOOP] 새 수집 사이클 시작")
+            items = collect_items(db, settings=settings, log=log)
             new_count = 0
 
             for item in items:
+                if stop_event is not None and stop_event.is_set():
+                    break
+
                 if db.has_seen(item.item_id):
                     continue
 
@@ -111,23 +133,31 @@ async def monitor_loop():
                 display_title = item.translated_title or item.title
 
                 if item.is_iran_war_related:
-                    print(f"[MATCH] 이란 전쟁 관련 감지: {item.source} | {display_title[:80]}")
-                    notifier.send(format_alert(item))
+                    log(f"[MATCH] 이란 전쟁 관련 감지: {item.source} | {display_title[:80]}")
+                    if settings.telegram_enabled:
+                        notifier.send(format_alert(item, settings))
+                    else:
+                        log("[TELEGRAM] 전송 비활성화 상태라 메시지를 보내지 않음")
                 else:
-                    print(f"[SKIP] 일반 항목 스킵: {item.source} | {display_title[:80]}")
+                    log(f"[SKIP] 일반 항목 스킵: {item.source} | {display_title[:80]}")
 
                 db.mark_seen(item)
                 new_count += 1
                 await asyncio.sleep(0.6)
 
             elapsed = time.time() - cycle_started_at
-            print(f"[checked={len(items)} new={new_count} elapsed={elapsed:.1f}s]")
+            log(f"[checked={len(items)} new={new_count} elapsed={elapsed:.1f}s]")
 
         except Exception as e:
-            print(f"[LOOP ERROR] {e}")
+            log(f"[LOOP ERROR] {e}")
+
+        if stop_event is not None and stop_event.is_set():
+            break
 
         await asyncio.sleep(POLL_SECONDS)
 
 
 if __name__ == "__main__":
-    asyncio.run(monitor_loop())
+    from main_ui import launch_main_ui
+
+    launch_main_ui()

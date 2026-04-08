@@ -29,6 +29,8 @@ SYSTEM_PROMPT = """당신은 정치/외교 모니터링 분석기다.
 - 원문이 이미 한국어여도 translated_title, translated_body는 한국어로 정리해서 채운다
 """
 
+_openai_failure_notice_shown = False
+
 
 def build_transcript_from_snippet(item: Item) -> str:
     return (
@@ -104,13 +106,12 @@ def fallback_translate_and_summarize(item: Item) -> Item:
         print(f"[FALLBACK] 본문 번역 실패: {e}")
         item.translated_body = clean_text(item.body)
 
-    item.summary = summarize_item_fallback(item, item.translated_title or item.title, item.translated_body or item.body)
+    item.summary = ""
     item.is_iran_war_related = contains_iran_war_keywords(
         item.title,
         item.body,
         item.translated_title,
         item.translated_body,
-        item.summary,
     )
     return item
 
@@ -181,24 +182,5 @@ def summarize_item_only(client: OpenAI, item: Item) -> tuple[str, str, str]:
 
 
 def enrich_item_with_stt_summary(item: Item, client: OpenAI | None) -> Item:
-    if client is None:
-        return fallback_translate_and_summarize(item)
-
-    try:
-        if USE_AI_IRAN_WAR_FILTER:
-            is_related, summary, translated_title, translated_body = summarize_and_classify_item(client, item)
-            item.is_iran_war_related = is_related
-            item.summary = summary
-            item.translated_title = translated_title
-            item.translated_body = translated_body
-        else:
-            summary, translated_title, translated_body = summarize_item_only(client, item)
-            item.summary = summary
-            item.translated_title = translated_title
-            item.translated_body = translated_body
-            item.is_iran_war_related = contains_iran_war_keywords(item.title, item.body, item.summary)
-    except Exception as e:
-        print(f"[OPENAI] 요약/번역 실패: {e}")
-        return fallback_translate_and_summarize(item)
-
-    return item
+    # AI 요약은 현재 비활성화 상태이며 번역 fallback만 사용한다.
+    return fallback_translate_and_summarize(item)

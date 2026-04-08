@@ -1,0 +1,11 @@
+{
+  "telegram_enabled": true,
+  "use_recent_hours_filter": true,
+  "recent_hours": 1,
+  "include_topic": true,
+  "include_source": true,
+  "include_time": false,
+  "include_title": true,
+  "include_content": false,
+  "include_link": true
+}

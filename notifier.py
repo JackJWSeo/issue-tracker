@@ -4,6 +4,7 @@ import requests
 
 from config import REQUEST_TIMEOUT
 from models import Item
+from ui_settings import UISettings
 from utils import parse_dt, short_text
 
 
@@ -31,7 +32,7 @@ class TelegramNotifier:
         r.raise_for_status()
 
 
-def format_alert(item: Item) -> str:
+def format_alert(item: Item, settings: UISettings) -> str:
     dt = parse_dt(item.published_at)
     dt_text = dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC") if dt else (item.published_at or "시간없음")
     icon = "🔥" if item.priority_score >= 5 else "📢"
@@ -39,14 +40,18 @@ def format_alert(item: Item) -> str:
     display_title = item.translated_title or item.title
     display_body = item.translated_body or item.body
 
-    summary_block = f"\n요약: {short_text(item.summary, 500)}" if item.summary else ""
+    lines = [f"{icon} 트럼프 모니터 감지"]
+    if settings.include_topic:
+        lines.append(f"분류: {topic}")
+    if settings.include_source:
+        lines.append(f"출처: {item.source}")
+    if settings.include_time:
+        lines.append(f"시각: {dt_text}")
+    if settings.include_title:
+        lines.append(f"제목: {short_text(display_title, 180)}")
+    if settings.include_content:
+        lines.append(f"내용: {short_text(display_body, 400)}")
+    if settings.include_link and item.url:
+        lines.append(f"링크: {item.url}")
 
-    return (
-        f"{icon} 트럼프 모니터 감지\n"
-        f"분류: {topic}\n"
-        f"출처: {item.source}\n"
-        f"시각: {dt_text}\n"
-        f"제목: {short_text(display_title, 180)}\n"
-        f"내용: {short_text(display_body, 400)}"
-        f"{summary_block}"
-    )
+    return "\n".join(lines)
