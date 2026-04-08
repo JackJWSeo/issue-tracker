@@ -1,8 +1,15 @@
 import hashlib
+import re
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 
-from config import HIGH_PRIORITY_KEYWORDS, IRAN_WAR_KEYWORDS
+from config import (
+    HIGH_PRIORITY_KEYWORDS,
+    IRAN_CONFLICT_KEYWORDS,
+    IRAN_SECONDARY_TOPIC_KEYWORDS,
+    IRAN_TOPIC_KEYWORDS,
+    IRAN_WAR_STRICT_KEYWORDS,
+)
 
 
 def sha1(text: str) -> str:
@@ -32,7 +39,17 @@ def compute_priority(title: str, body: str) -> int:
 
 def contains_iran_war_keywords(*parts: str) -> bool:
     text = normalize_text(*parts)
-    return any(kw in text for kw in IRAN_WAR_KEYWORDS)
+    if any(kw in text for kw in IRAN_WAR_STRICT_KEYWORDS):
+        return True
+
+    has_primary_topic = any(kw in text for kw in IRAN_TOPIC_KEYWORDS)
+    has_secondary_topic = any(kw in text for kw in IRAN_SECONDARY_TOPIC_KEYWORDS)
+    has_conflict = any(kw in text for kw in IRAN_CONFLICT_KEYWORDS)
+    return has_primary_topic and has_secondary_topic and has_conflict
+
+
+def looks_korean(text: str) -> bool:
+    return bool(re.search(r"[\uac00-\ud7a3]", text or ""))
 
 
 def parse_dt(value: str | None):

@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 
 from config import (
@@ -15,6 +16,7 @@ from db import StateDB
 from models import Item
 from notifier import TelegramNotifier, format_alert
 from sources.google_news import fetch_google_news_rss
+from sources.truth_social import fetch_truthsocial_posts
 from sources.x_monitor import fetch_x_posts
 from sources.youtube_live import fetch_youtube_live
 from sources.youtube_stt import enrich_item_with_stt_summary
@@ -32,6 +34,15 @@ def collect_items(db: StateDB) -> list[Item]:
             print(f"[X] 수집 완료: {username} items={len(rows)}")
         except Exception as e:
             print(f"[X] {username} 실패: {e}")
+
+    for username in TARGETS["truthsocial_accounts"]:
+        print(f"[TRUTH] 수집 시작: {username}")
+        try:
+            rows = fetch_truthsocial_posts(username, db)
+            results.extend(rows)
+            print(f"[TRUTH] 수집 완료: {username} items={len(rows)}")
+        except Exception as e:
+            print(f"[TRUTH] {username} 실패: {e}")
 
     for query in TARGETS["youtube_queries"]:
         print(f"[YT] 수집 시작: {query}")
@@ -66,8 +77,17 @@ async def monitor_loop():
     ai_client = None
     if OPENAI_API_KEY:
         try:
-            from openai import OpenAI
-            ai_client = OpenAI(api_key=OPENAI_API_KEY)
+            from openai import DefaultHttpxClient, OpenAI
+
+            proxy_vars = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"]
+            active_proxies = {name: os.getenv(name, "") for name in proxy_vars if os.getenv(name)}
+            if active_proxies:
+                print(f"[INFO] OpenAI 호출 시 시스템 프록시 무시: {active_proxies}")
+
+            ai_client = OpenAI(
+                api_key=OPENAI_API_KEY,
+                http_client=DefaultHttpxClient(trust_env=False),
+            )
         except Exception as e:
             print(f"[WARN] openai SDK 로드 실패: {e}")
             print("[WARN] 요약 기능 없이 계속 실행합니다. python -m pip install openai 로 설치 가능")
@@ -88,12 +108,13 @@ async def monitor_loop():
 
                 item.is_iran_war_related = contains_iran_war_keywords(item.title, item.body)
                 item = enrich_item_with_stt_summary(item, ai_client)
+                display_title = item.translated_title or item.title
 
                 if item.is_iran_war_related:
-                    print(f"[MATCH] 이란 전쟁 관련 감지: {item.source} | {item.title[:80]}")
+                    print(f"[MATCH] 이란 전쟁 관련 감지: {item.source} | {display_title[:80]}")
                     notifier.send(format_alert(item))
                 else:
-                    print(f"[SKIP] 일반 항목 스킵: {item.source} | {item.title[:80]}")
+                    print(f"[SKIP] 일반 항목 스킵: {item.source} | {display_title[:80]}")
 
                 db.mark_seen(item)
                 new_count += 1

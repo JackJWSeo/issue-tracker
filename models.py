@@ -13,3 +13,5 @@ class Item:
     priority_score: int = 0
     summary: str = ""
     is_iran_war_related: bool = False
+    translated_title: str = ""
+    translated_body: str = ""

@@ -36,6 +36,8 @@ def format_alert(item: Item) -> str:
     dt_text = dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC") if dt else (item.published_at or "시간없음")
     icon = "🔥" if item.priority_score >= 5 else "📢"
     topic = "이란 전쟁 관련" if item.is_iran_war_related else "일반"
+    display_title = item.translated_title or item.title
+    display_body = item.translated_body or item.body
 
     summary_block = f"\n요약: {short_text(item.summary, 500)}" if item.summary else ""
 
@@ -44,8 +46,7 @@ def format_alert(item: Item) -> str:
         f"분류: {topic}\n"
         f"출처: {item.source}\n"
         f"시각: {dt_text}\n"
-        f"제목: {short_text(item.title, 180)}\n"
-        f"내용: {short_text(item.body, 400)}"
-        f"{summary_block}\n"
-        f"링크: {item.url}"
+        f"제목: {short_text(display_title, 180)}\n"
+        f"내용: {short_text(display_body, 400)}"
+        f"{summary_block}"
     )

@@ -42,6 +42,7 @@ TELEGRAM_CHAT_ID = get_secret("TELEGRAM_CHAT_ID")
 X_BEARER_TOKEN = get_secret("X_BEARER_TOKEN")
 YOUTUBE_API_KEY = get_secret("YOUTUBE_API_KEY")
 OPENAI_API_KEY = get_secret("OPENAI_API_KEY")
+TRUTHSOCIAL_BASE_URL = get_secret("TRUTHSOCIAL_BASE_URL", "https://truthsocial.com").rstrip("/")
 
 POLL_SECONDS = int(get_secret("POLL_SECONDS", "45"))
 DB_PATH = get_secret("DB_PATH", str(BASE_DIR / "trump_monitor.sqlite3"))
@@ -54,6 +55,9 @@ TARGETS = {
         "realDonaldTrump",
         "WhiteHouse",
         "RapidResponse47",
+    ],
+    "truthsocial_accounts": [
+        "realDonaldTrump",
     ],
     "youtube_queries": [
         "Donald Trump live",
@@ -76,28 +80,59 @@ HIGH_PRIORITY_KEYWORDS = [
     "bitcoin", "crypto", "fed", "interest rate", "tesla", "tiktok",
 ]
 
-IRAN_WAR_KEYWORDS = [
+IRAN_TOPIC_KEYWORDS = [
     "iran",
-    "israel",
-    "tehran",
     "iranian",
-    "israeli",
-    "middle east",
-    "persian gulf",
-    "gulf",
-    "missile",
-    "airstrike",
-    "strike on iran",
-    "strike against iran",
-    "attack on iran",
-    "attack against iran",
-    "bombing",
-    "retaliation",
-    "revolutionary guard",
+    "tehran",
     "irgc",
+    "revolutionary guard",
+    "persian gulf",
     "nuclear site",
     "uranium",
+]
+
+IRAN_SECONDARY_TOPIC_KEYWORDS = [
+    "israel",
+    "israeli",
+    "middle east",
+    "gaza",
+    "hamas",
+    "hezbollah",
+    "syria",
+    "lebanon",
+    "u.s.",
+    "us",
+    "american",
+]
+
+IRAN_CONFLICT_KEYWORDS = [
+    "war",
+    "missile",
+    "airstrike",
+    "strike",
+    "attack",
+    "bombing",
+    "retaliation",
+    "conflict",
+    "clash",
+    "military",
+    "troops",
+    "drone",
     "ceasefire",
-    "war with iran",
+    "intercepted",
+    "rocket",
+    "ballistic",
+]
+
+IRAN_WAR_STRICT_KEYWORDS = [
     "iran war",
+    "war with iran",
+    "attack on iran",
+    "attack against iran",
+    "strike on iran",
+    "strike against iran",
+    "iran missile attack",
+    "iran nuclear site",
+    "israel iran conflict",
+    "iran israel war",
 ]
