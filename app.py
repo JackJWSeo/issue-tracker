@@ -1,8 +1,6 @@
 import asyncio
 import time
 
-from openai import OpenAI #
-
 from config import (
     DB_PATH,
     OPENAI_API_KEY,
@@ -56,7 +54,14 @@ def collect_items(db: StateDB) -> list[Item]:
 async def monitor_loop():
     db = StateDB(DB_PATH)
     notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
-    ai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+    ai_client = None
+    if OPENAI_API_KEY:
+        try:
+            from openai import OpenAI
+            ai_client = OpenAI(api_key=OPENAI_API_KEY)
+        except Exception as e:
+            print(f"[WARN] openai SDK 로드 실패: {e}")
+            print("[WARN] 요약 기능 없이 계속 실행합니다. python -m pip install openai 로 설치 가능")
 
     print("[START] Trump Monitor 시작")
     print(f"[INFO] poll={POLL_SECONDS}s db={DB_PATH}")

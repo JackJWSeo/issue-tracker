@@ -1,3 +1,4 @@
 *.pyc
 *.sqlite3
 trump_monitor_tool.py
+secrets.dev.json
