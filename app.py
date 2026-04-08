@@ -18,27 +18,36 @@ from sources.google_news import fetch_google_news_rss
 from sources.x_monitor import fetch_x_posts
 from sources.youtube_live import fetch_youtube_live
 from sources.youtube_stt import enrich_item_with_stt_summary
-from utils import parse_dt
+from utils import contains_iran_war_keywords, parse_dt
 
 
 def collect_items(db: StateDB) -> list[Item]:
     results: list[Item] = []
 
     for username in TARGETS["x_accounts"]:
+        print(f"[X] 수집 시작: {username}")
         try:
-            results.extend(fetch_x_posts(username, X_BEARER_TOKEN, db))
+            rows = fetch_x_posts(username, X_BEARER_TOKEN, db)
+            results.extend(rows)
+            print(f"[X] 수집 완료: {username} items={len(rows)}")
         except Exception as e:
             print(f"[X] {username} 실패: {e}")
 
     for query in TARGETS["youtube_queries"]:
+        print(f"[YT] 수집 시작: {query}")
         try:
-            results.extend(fetch_youtube_live(query, YOUTUBE_API_KEY))
+            rows = fetch_youtube_live(query, YOUTUBE_API_KEY)
+            results.extend(rows)
+            print(f"[YT] 수집 완료: {query} items={len(rows)}")
         except Exception as e:
             print(f"[YT] {query} 실패: {e}")
 
     for query in TARGETS["news_queries"]:
+        print(f"[NEWS] 수집 시작: {query}")
         try:
-            results.extend(fetch_google_news_rss(query))
+            rows = fetch_google_news_rss(query)
+            results.extend(rows)
+            print(f"[NEWS] 수집 완료: {query} items={len(rows)}")
         except Exception as e:
             print(f"[NEWS] {query} 실패: {e}")
 
@@ -68,6 +77,8 @@ async def monitor_loop():
 
     while True:
         try:
+            cycle_started_at = time.time()
+            print("[LOOP] 새 수집 사이클 시작")
             items = collect_items(db)
             new_count = 0
 
@@ -75,23 +86,21 @@ async def monitor_loop():
                 if db.has_seen(item.item_id):
                     continue
 
+                item.is_iran_war_related = contains_iran_war_keywords(item.title, item.body)
+                item = enrich_item_with_stt_summary(item, ai_client)
+
+                if item.is_iran_war_related:
+                    print(f"[MATCH] 이란 전쟁 관련 감지: {item.source} | {item.title[:80]}")
+                    notifier.send(format_alert(item))
+                else:
+                    print(f"[SKIP] 일반 항목 스킵: {item.source} | {item.title[:80]}")
+
                 db.mark_seen(item)
                 new_count += 1
+                await asyncio.sleep(0.6)
 
-                if item.priority_score < 1:
-                    continue
-
-                # 3) STT/요약 단계
-                # 현재 버전은 YouTube 라이브/영상의 제목·설명 기반 임시 전사 요약.
-                # 실제 음성 STT를 넣고 싶으면 yt-dlp + ffmpeg로 오디오 추출 후
-                # Whisper 전사 함수로 교체하면 된다.
-                if item.source.startswith("youtube_live:") or item.source.startswith("x:"):
-                    item = enrich_item_with_stt_summary(item, ai_client)
-
-                notifier.send(format_alert(item))
-                time.sleep(0.6)
-
-            print(f"[checked={len(items)} new={new_count}]")
+            elapsed = time.time() - cycle_started_at
+            print(f"[checked={len(items)} new={new_count} elapsed={elapsed:.1f}s]")
 
         except Exception as e:
             print(f"[LOOP ERROR] {e}")

@@ -24,6 +24,7 @@ def fetch_google_news_rss(query: str) -> list[Item]:
     items: list[Item] = []
     for node in channel.findall("item"):
         title = (node.findtext("title") or "").strip()
+        description = (node.findtext("description") or "").strip()
         link = (node.findtext("link") or "").strip()
         pub_date = (node.findtext("pubDate") or "").strip()
         guid = (node.findtext("guid") or link or title).strip()
@@ -32,11 +33,11 @@ def fetch_google_news_rss(query: str) -> list[Item]:
             Item(
                 source=f"google_news:{query}",
                 title=title,
-                body="",
+                body=description,
                 url=link,
                 published_at=pub_date,
                 item_id=sha1(f"news|{guid}"),
-                priority_score=compute_priority(title, ""),
+                priority_score=compute_priority(title, description),
             )
         )
 

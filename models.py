@@ -12,3 +12,4 @@ class Item:
     item_id: str
     priority_score: int = 0
     summary: str = ""
+    is_iran_war_related: bool = False

@@ -46,6 +46,8 @@ OPENAI_API_KEY = get_secret("OPENAI_API_KEY")
 POLL_SECONDS = int(get_secret("POLL_SECONDS", "45"))
 DB_PATH = get_secret("DB_PATH", str(BASE_DIR / "trump_monitor.sqlite3"))
 REQUEST_TIMEOUT = int(get_secret("REQUEST_TIMEOUT", "20"))
+OPENAI_SUMMARY_MODEL = get_secret("OPENAI_SUMMARY_MODEL", "gpt-4.1-mini")
+USE_AI_IRAN_WAR_FILTER = get_secret("USE_AI_IRAN_WAR_FILTER", "1").lower() in {"1", "true", "yes", "on"}
 
 TARGETS = {
     "x_accounts": [
@@ -72,4 +74,30 @@ HIGH_PRIORITY_KEYWORDS = [
     "tariff", "sanction", "ukraine", "china", "taiwan", "iran", "nato",
     "south korea", "korea", "trade", "military", "nuclear", "election",
     "bitcoin", "crypto", "fed", "interest rate", "tesla", "tiktok",
+]
+
+IRAN_WAR_KEYWORDS = [
+    "iran",
+    "israel",
+    "tehran",
+    "iranian",
+    "israeli",
+    "middle east",
+    "persian gulf",
+    "gulf",
+    "missile",
+    "airstrike",
+    "strike on iran",
+    "strike against iran",
+    "attack on iran",
+    "attack against iran",
+    "bombing",
+    "retaliation",
+    "revolutionary guard",
+    "irgc",
+    "nuclear site",
+    "uranium",
+    "ceasefire",
+    "war with iran",
+    "iran war",
 ]

@@ -2,7 +2,7 @@ import hashlib
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 
-from config import HIGH_PRIORITY_KEYWORDS
+from config import HIGH_PRIORITY_KEYWORDS, IRAN_WAR_KEYWORDS
 
 
 def sha1(text: str) -> str:
@@ -28,6 +28,11 @@ def compute_priority(title: str, body: str) -> int:
         score += 1
 
     return score
+
+
+def contains_iran_war_keywords(*parts: str) -> bool:
+    text = normalize_text(*parts)
+    return any(kw in text for kw in IRAN_WAR_KEYWORDS)
 
 
 def parse_dt(value: str | None):
