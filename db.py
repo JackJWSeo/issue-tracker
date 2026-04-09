@@ -70,3 +70,6 @@ class StateDB:
             (key, value),
         )
         self.conn.commit()
+
+    def close(self) -> None:
+        self.conn.close()

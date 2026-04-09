@@ -105,56 +105,59 @@ async def monitor_loop(
     settings: UISettings | None = None,
 ):
     db = StateDB(DB_PATH)
-    notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
-    ai_client = None
-    settings = settings or load_ui_settings()
-    if OPENAI_API_KEY:
-        log("[INFO] AI 요약 기능은 주석 처리되어 비활성화됨")
+    try:
+        notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+        ai_client = None
+        settings = settings or load_ui_settings()
+        if OPENAI_API_KEY:
+            log("[INFO] AI 요약 기능은 주석 처리되어 비활성화됨")
 
-    log("[START] Trump Monitor 시작")
-    log(f"[INFO] poll={POLL_SECONDS}s db={DB_PATH}")
+        log("[START] Trump Monitor 시작")
+        log(f"[INFO] poll={POLL_SECONDS}s db={DB_PATH}")
 
-    while stop_event is None or not stop_event.is_set():
-        try:
-            cycle_started_at = time.time()
-            log("[LOOP] 새 수집 사이클 시작")
-            items = collect_items(db, settings=settings, log=log)
-            new_count = 0
+        while stop_event is None or not stop_event.is_set():
+            try:
+                cycle_started_at = time.time()
+                log("[LOOP] 새 수집 사이클 시작")
+                items = collect_items(db, settings=settings, log=log)
+                new_count = 0
 
-            for item in items:
-                if stop_event is not None and stop_event.is_set():
-                    break
+                for item in items:
+                    if stop_event is not None and stop_event.is_set():
+                        break
 
-                if db.has_seen(item.item_id):
-                    continue
+                    if db.has_seen(item.item_id):
+                        continue
 
-                item.is_iran_war_related = contains_iran_war_keywords(item.title, item.body)
-                item = enrich_item_with_stt_summary(item, ai_client)
-                display_title = item.translated_title or item.title
+                    item.is_iran_war_related = contains_iran_war_keywords(item.title, item.body)
+                    item = enrich_item_with_stt_summary(item, ai_client)
+                    display_title = item.translated_title or item.title
 
-                if item.is_iran_war_related:
-                    log(f"[MATCH] 이란 전쟁 관련 감지: {item.source} | {display_title[:80]}")
-                    if settings.telegram_enabled:
-                        notifier.send(format_alert(item, settings))
+                    if item.is_iran_war_related:
+                        log(f"[MATCH] 이란 전쟁 관련 감지: {item.source} | {display_title[:80]}")
+                        if settings.telegram_enabled:
+                            notifier.send(format_alert(item, settings))
+                        else:
+                            log("[TELEGRAM] 전송 비활성화 상태라 메시지를 보내지 않음")
                     else:
-                        log("[TELEGRAM] 전송 비활성화 상태라 메시지를 보내지 않음")
-                else:
-                    log(f"[SKIP] 일반 항목 스킵: {item.source} | {display_title[:80]}")
+                        log(f"[SKIP] 일반 항목 스킵: {item.source} | {display_title[:80]}")
 
-                db.mark_seen(item)
-                new_count += 1
-                await asyncio.sleep(0.6)
+                    db.mark_seen(item)
+                    new_count += 1
+                    await asyncio.sleep(0.6)
 
-            elapsed = time.time() - cycle_started_at
-            log(f"[checked={len(items)} new={new_count} elapsed={elapsed:.1f}s]")
+                elapsed = time.time() - cycle_started_at
+                log(f"[checked={len(items)} new={new_count} elapsed={elapsed:.1f}s]")
 
-        except Exception as e:
-            log(f"[LOOP ERROR] {e}")
+            except Exception as e:
+                log(f"[LOOP ERROR] {e}")
 
-        if stop_event is not None and stop_event.is_set():
-            break
+            if stop_event is not None and stop_event.is_set():
+                break
 
-        await asyncio.sleep(POLL_SECONDS)
+            await asyncio.sleep(POLL_SECONDS)
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":

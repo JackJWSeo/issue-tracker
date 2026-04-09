@@ -1,11 +1,15 @@
 import asyncio
-import queue
 import threading
 import tkinter as tk
+from collections import deque
+from datetime import datetime
 from tkinter import font as tkfont, messagebox, ttk
 
 from app import monitor_loop
 from ui_settings import UISettings, load_ui_settings, save_ui_settings
+
+
+MAX_UI_LOG_LINES = 500
 
 
 class MonitorUI:
@@ -14,7 +18,9 @@ class MonitorUI:
         self.root.title("Trump Monitor Control")
         self.root.geometry("880x640")
 
-        self.log_queue: queue.Queue[str] = queue.Queue()
+        self.log_buffer: deque[str] = deque(maxlen=MAX_UI_LOG_LINES)
+        self.log_lock = threading.Lock()
+        self.displayed_log_count = 0
         self.monitor_thread: threading.Thread | None = None
         self.stop_event = threading.Event()
 
@@ -39,40 +45,48 @@ class MonitorUI:
     def build_layout(self) -> None:
         container = ttk.Frame(self.root, padding=16)
         container.pack(fill="both", expand=True)
-
-        title = ttk.Label(container, text="Trump Monitor Main UI", font=("Segoe UI", 18, "bold"))
-        title.pack(anchor="w")
+        container.columnconfigure(0, weight=3)
+        container.columnconfigure(1, weight=2)
+        container.rowconfigure(3, weight=1)
 
         subtitle = ttk.Label(
             container,
             text="텔레그램 전송 여부와 메시지 구성 요소를 체크박스로 제어할 수 있습니다.",
+            justify="left",
         )
-        subtitle.pack(anchor="w", pady=(4, 12))
+        subtitle.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
 
         controls = ttk.LabelFrame(container, text="메시지 설정", padding=12)
-        controls.pack(fill="x")
+        controls.grid(row=1, column=0, sticky="nsew", padx=(0, 12), pady=(0, 12))
+        controls.columnconfigure(0, weight=1)
+        controls.columnconfigure(1, weight=1)
 
-        time_filter_frame = ttk.LabelFrame(container, text="수집 시간 범위", padding=12)
-        time_filter_frame.pack(fill="x", pady=(0, 12))
+        side_panel = ttk.Frame(container)
+        side_panel.grid(row=1, column=1, sticky="nsew", pady=(0, 12))
+        side_panel.columnconfigure(0, weight=1)
+
+        time_filter_frame = ttk.LabelFrame(side_panel, text="수집 시간 범위", padding=12)
+        time_filter_frame.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        time_filter_frame.columnconfigure(1, weight=1)
 
         ttk.Checkbutton(
             time_filter_frame,
             text="최근 N시간 내 컨텐츠만 가져오기",
             variable=self.use_recent_hours_filter_var,
             command=self.on_setting_changed,
-        ).grid(row=0, column=0, sticky="w")
+        ).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 8))
 
-        ttk.Label(time_filter_frame, text="최근 시간:").grid(row=0, column=1, sticky="e", padx=(18, 6))
+        ttk.Label(time_filter_frame, text="최근 시간:").grid(row=1, column=0, sticky="w", padx=(0, 6))
         hours_spin = ttk.Spinbox(
             time_filter_frame,
             from_=1,
             to=168,
             textvariable=self.recent_hours_var,
-            width=6,
+            width=8,
             command=self.on_setting_changed,
         )
-        hours_spin.grid(row=0, column=2, sticky="w")
-        ttk.Label(time_filter_frame, text="시간").grid(row=0, column=3, sticky="w", padx=(6, 0))
+        hours_spin.grid(row=1, column=1, sticky="w")
+        ttk.Label(time_filter_frame, text="시간").grid(row=1, column=2, sticky="w", padx=(6, 0))
         hours_spin.bind("<KeyRelease>", lambda _event: self.on_setting_changed())
 
         checkboxes = [
@@ -93,24 +107,23 @@ class MonitorUI:
                 command=self.on_setting_changed,
             ).grid(row=index // 2, column=index % 2, sticky="w", padx=(0, 18), pady=6)
 
-        button_row = ttk.Frame(container)
-        button_row.pack(fill="x", pady=(12, 12))
+        button_row = ttk.LabelFrame(side_panel, text="실행 제어", padding=12)
+        button_row.grid(row=1, column=0, sticky="ew", pady=(0, 12))
 
         ttk.Button(button_row, text="설정 저장", command=self.save_settings).pack(side="left")
         ttk.Button(button_row, text="모니터 시작", command=self.start_monitoring).pack(side="left", padx=8)
         ttk.Button(button_row, text="모니터 중지", command=self.stop_monitoring).pack(side="left")
 
-        status_frame = ttk.Frame(container)
-        status_frame.pack(fill="x", pady=(0, 12))
-        ttk.Label(status_frame, text="상태:", font=("Segoe UI", 10, "bold")).pack(side="left")
-        ttk.Label(status_frame, textvariable=self.status_var).pack(side="left", padx=(6, 0))
+        status_frame = ttk.LabelFrame(side_panel, text="상태", padding=12)
+        status_frame.grid(row=2, column=0, sticky="ew")
+        ttk.Label(status_frame, textvariable=self.status_var).pack(anchor="w")
 
         preview_frame = ttk.LabelFrame(container, text="메시지 미리보기", padding=12)
-        preview_frame.pack(fill="x", pady=(0, 12))
+        preview_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 12))
         ttk.Label(preview_frame, textvariable=self.preview_var, justify="left").pack(anchor="w")
 
         log_frame = ttk.LabelFrame(container, text="실행 로그", padding=12)
-        log_frame.pack(fill="both", expand=True)
+        log_frame.grid(row=3, column=0, columnspan=2, sticky="nsew")
 
         self.log_text = tk.Text(log_frame, wrap="word", height=18)
         self.log_text.pack(side="left", fill="both", expand=True)
@@ -200,13 +213,23 @@ class MonitorUI:
         self.append_log("[UI] 모니터 중지 요청")
 
     def append_log(self, message: str) -> None:
-        self.log_queue.put(message)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self.log_lock:
+            self.log_buffer.append(f"[{timestamp}] {message}")
 
     def flush_logs(self) -> None:
-        while not self.log_queue.empty():
-            message = self.log_queue.get()
+        with self.log_lock:
+            messages = list(self.log_buffer)
+            self.log_buffer.clear()
+
+        for message in messages:
             self.log_text.configure(state="normal")
             self.log_text.insert("end", message + "\n")
+            self.displayed_log_count += 1
+            overflow = self.displayed_log_count - MAX_UI_LOG_LINES
+            if overflow > 0:
+                self.log_text.delete("1.0", f"{overflow + 1}.0")
+                self.displayed_log_count = MAX_UI_LOG_LINES
             self.log_text.see("end")
             self.log_text.configure(state="disabled")
         self.root.after(200, self.flush_logs)
