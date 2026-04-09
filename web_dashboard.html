@@ -59,6 +59,27 @@
       gap: 16px;
     }
 
+    .sidebar-toggle {
+      display: none;
+      width: 100%;
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: var(--shadow);
+      color: var(--text);
+      font: inherit;
+      font-weight: 700;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .sidebar-toggle span:last-child {
+      float: right;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
     .content {
       min-width: 0;
     }
@@ -288,6 +309,15 @@
         position: static;
       }
 
+      .sidebar-toggle {
+        display: block;
+      }
+
+      .sidebar.is-collapsed .stats,
+      .sidebar.is-collapsed .control-panel {
+        display: none;
+      }
+
       .stats {
         grid-template-columns: 1fr;
       }
@@ -304,7 +334,11 @@
 </head>
   <body>
   <main class="page">
-    <aside class="sidebar">
+    <aside class="sidebar is-collapsed" id="sidebar">
+      <button class="sidebar-toggle" id="sidebarToggle" type="button">
+        <span>옵션 보기</span>
+        <span id="sidebarToggleLabel">펼치기</span>
+      </button>
       <section class="stats">
         <div class="stat">
           <div class="label">최근 1시간 이슈 수</div>
@@ -372,6 +406,9 @@
     const filterTruthSocialEl = document.getElementById("filterTruthSocial");
     const filterXEl = document.getElementById("filterX");
     const filterYoutubeEl = document.getElementById("filterYoutube");
+    const sidebarEl = document.getElementById("sidebar");
+    const sidebarToggleEl = document.getElementById("sidebarToggle");
+    const sidebarToggleLabelEl = document.getElementById("sidebarToggleLabel");
 
     let previousIds = new Set();
     let hasLoadedOnce = false;
@@ -577,6 +614,16 @@
       return Math.max(3, seconds) * 1000;
     }
 
+    function syncSidebarForViewport() {
+      const isMobile = window.matchMedia("(max-width: 900px)").matches;
+      if (!isMobile) {
+        sidebarEl.classList.remove("is-collapsed");
+        sidebarToggleLabelEl.textContent = "항상 표시";
+        return;
+      }
+      sidebarToggleLabelEl.textContent = sidebarEl.classList.contains("is-collapsed") ? "펼치기" : "접기";
+    }
+
     function restartAutoRefresh() {
       if (refreshTimer) {
         clearInterval(refreshTimer);
@@ -598,8 +645,19 @@
       });
     });
 
+    sidebarToggleEl.addEventListener("click", () => {
+      if (!window.matchMedia("(max-width: 900px)").matches) {
+        return;
+      }
+      sidebarEl.classList.toggle("is-collapsed");
+      syncSidebarForViewport();
+    });
+
+    window.addEventListener("resize", syncSidebarForViewport);
+
     refreshIssues();
     restartAutoRefresh();
+    syncSidebarForViewport();
   </script>
 </body>
 </html>

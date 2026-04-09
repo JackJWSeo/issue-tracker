@@ -28,6 +28,7 @@ class MonitorUI:
         self.telegram_enabled_var = tk.BooleanVar(value=self.settings.telegram_enabled)
         self.use_recent_hours_filter_var = tk.BooleanVar(value=self.settings.use_recent_hours_filter)
         self.recent_hours_var = tk.IntVar(value=self.settings.recent_hours)
+        self.exclude_keywords_var = tk.StringVar(value=self.settings.exclude_keywords)
         self.include_topic_var = tk.BooleanVar(value=self.settings.include_topic)
         self.include_source_var = tk.BooleanVar(value=self.settings.include_source)
         self.include_time_var = tk.BooleanVar(value=self.settings.include_time)
@@ -89,6 +90,11 @@ class MonitorUI:
         ttk.Label(time_filter_frame, text="시간").grid(row=1, column=2, sticky="w", padx=(6, 0))
         hours_spin.bind("<KeyRelease>", lambda _event: self.on_setting_changed())
 
+        ttk.Label(time_filter_frame, text="제외 키워드:").grid(row=2, column=0, sticky="nw", padx=(0, 6), pady=(10, 0))
+        exclude_entry = ttk.Entry(time_filter_frame, textvariable=self.exclude_keywords_var)
+        exclude_entry.grid(row=2, column=1, columnspan=3, sticky="ew", pady=(10, 0))
+        exclude_entry.bind("<KeyRelease>", lambda _event: self.on_setting_changed())
+
         checkboxes = [
             ("텔레그램으로 메시지 전송", self.telegram_enabled_var),
             ("분류 포함", self.include_topic_var),
@@ -138,6 +144,7 @@ class MonitorUI:
             telegram_enabled=self.telegram_enabled_var.get(),
             use_recent_hours_filter=self.use_recent_hours_filter_var.get(),
             recent_hours=max(1, int(self.recent_hours_var.get() or 24)),
+            exclude_keywords=self.exclude_keywords_var.get().strip(),
             include_topic=self.include_topic_var.get(),
             include_source=self.include_source_var.get(),
             include_time=self.include_time_var.get(),
@@ -150,10 +157,6 @@ class MonitorUI:
         settings = self.build_settings()
         lines = []
         lines.append("텔레그램 전송: 켜짐" if settings.telegram_enabled else "텔레그램 전송: 꺼짐")
-        if settings.use_recent_hours_filter:
-            lines.append(f"수집 범위: 최근 {settings.recent_hours}시간")
-        else:
-            lines.append("수집 범위: 전체")
         if settings.include_topic:
             lines.append("분류: 이란 전쟁 관련")
         if settings.include_source:

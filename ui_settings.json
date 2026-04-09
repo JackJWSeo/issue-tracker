@@ -2,6 +2,7 @@
   "telegram_enabled": true,
   "use_recent_hours_filter": true,
   "recent_hours": 1,
+  "exclude_keywords": "melania, melania trump, 멜라니아",
   "include_topic": true,
   "include_source": true,
   "include_time": false,

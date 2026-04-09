@@ -22,7 +22,7 @@ from sources.x_monitor import fetch_x_posts
 from sources.youtube_live import fetch_youtube_live
 from sources.youtube_stt import enrich_item_with_stt_summary
 from ui_settings import UISettings, load_ui_settings
-from utils import contains_iran_war_keywords, is_within_recent_hours, parse_dt
+from utils import contains_iran_war_keywords, is_within_recent_hours, match_exclude_keyword, parse_dt
 
 
 LogFn = Callable[[str], None]
@@ -132,8 +132,20 @@ async def monitor_loop(
                     item.is_iran_war_related = contains_iran_war_keywords(item.title, item.body)
                     item = enrich_item_with_stt_summary(item, ai_client)
                     display_title = item.translated_title or item.title
+                    matched_exclude_keyword = match_exclude_keyword(
+                        settings.exclude_keywords,
+                        item.title,
+                        item.body,
+                        item.translated_title,
+                        item.translated_body,
+                    )
 
-                    if item.is_iran_war_related:
+                    if matched_exclude_keyword:
+                        log(
+                            f"[SKIP] 제외 키워드 일치({matched_exclude_keyword}): "
+                            f"{item.source} | {display_title[:80]}"
+                        )
+                    elif item.is_iran_war_related:
                         log(f"[MATCH] 이란 전쟁 관련 감지: {item.source} | {display_title[:80]}")
                         if settings.telegram_enabled:
                             notifier.send(format_alert(item, settings))

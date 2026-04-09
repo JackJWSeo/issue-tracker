@@ -12,6 +12,7 @@ class UISettings:
     telegram_enabled: bool = True
     use_recent_hours_filter: bool = True
     recent_hours: int = 24
+    exclude_keywords: str = "melania, melania trump, 멜라니아"
     include_topic: bool = True
     include_source: bool = True
     include_time: bool = True
@@ -40,6 +41,8 @@ def load_ui_settings() -> UISettings:
                 defaults[key] = max(1, int(value))
             except Exception:
                 pass
+        elif isinstance(defaults[key], str):
+            defaults[key] = str(value)
     return UISettings(**defaults)
 
 

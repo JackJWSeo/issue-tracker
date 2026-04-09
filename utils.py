@@ -22,6 +22,10 @@ def normalize_text(*parts: str) -> str:
     return " ".join(p for p in parts if p).strip().lower()
 
 
+def parse_keyword_csv(value: str) -> list[str]:
+    return [part.strip().lower() for part in (value or "").split(",") if part.strip()]
+
+
 def compute_priority(title: str, body: str) -> int:
     text = normalize_text(title, body)
     score = 0
@@ -48,6 +52,14 @@ def contains_iran_war_keywords(*parts: str) -> bool:
     has_secondary_topic = any(kw in text for kw in IRAN_SECONDARY_TOPIC_KEYWORDS)
     has_conflict = any(kw in text for kw in IRAN_CONFLICT_KEYWORDS)
     return has_primary_topic and has_secondary_topic and has_conflict
+
+
+def match_exclude_keyword(exclude_keywords: str, *parts: str) -> str:
+    text = normalize_text(*parts)
+    for keyword in parse_keyword_csv(exclude_keywords):
+        if keyword in text:
+            return keyword
+    return ""
 
 
 def looks_korean(text: str) -> bool:
