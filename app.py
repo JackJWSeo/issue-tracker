@@ -126,7 +126,7 @@ async def monitor_loop(
                     if stop_event is not None and stop_event.is_set():
                         break
 
-                    if db.has_seen(item.item_id):
+                    if db.has_seen(item.item_id) or db.has_ignored(item.item_id):
                         continue
 
                     item.is_iran_war_related = contains_iran_war_keywords(item.title, item.body)
@@ -145,16 +145,17 @@ async def monitor_loop(
                             f"[SKIP] 제외 키워드 일치({matched_exclude_keyword}): "
                             f"{item.source} | {display_title[:80]}"
                         )
+                        db.mark_ignored(item)
                     elif item.is_iran_war_related:
                         log(f"[MATCH] 이란 전쟁 관련 감지: {item.source} | {display_title[:80]}")
                         if settings.telegram_enabled:
                             notifier.send(format_alert(item, settings))
                         else:
                             log("[TELEGRAM] 전송 비활성화 상태라 메시지를 보내지 않음")
+                        db.mark_seen(item)
                     else:
                         log(f"[SKIP] 일반 항목 스킵: {item.source} | {display_title[:80]}")
-
-                    db.mark_seen(item)
+                        db.mark_seen(item)
                     new_count += 1
                     await asyncio.sleep(0.6)
 

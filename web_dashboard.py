@@ -1,13 +1,19 @@
 import json
+import re
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from email.utils import formatdate
+from html import unescape
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.error import URLError
+from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.request import urlopen
 
 from config import DB_PATH
+from ui_settings import load_ui_settings
+from utils import looks_korean, match_exclude_keyword
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -16,6 +22,34 @@ DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 15242
 DEFAULT_WINDOW_MINUTES = 60
 DEFAULT_LIMIT = 100
+TRANSLATION_TIMEOUT_SECONDS = 10
+_translation_cache: dict[str, str] = {}
+
+
+def ensure_seen_items_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS seen_items (
+            item_id TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            title TEXT,
+            url TEXT,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    existing_columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(seen_items)").fetchall()
+    }
+    for column_name, column_type in (
+        ("body", "TEXT"),
+        ("translated_title", "TEXT"),
+        ("translated_body", "TEXT"),
+    ):
+        if column_name not in existing_columns:
+            conn.execute(f"ALTER TABLE seen_items ADD COLUMN {column_name} {column_type}")
+    conn.commit()
 
 
 def parse_iso_datetime(value: str | None) -> datetime | None:
@@ -32,14 +66,88 @@ def parse_iso_datetime(value: str | None) -> datetime | None:
     return dt.astimezone(UTC)
 
 
+def clean_text(value: str) -> str:
+    text = unescape(value or "")
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def translate_to_korean(text: str) -> str:
+    text = clean_text(text)
+    if not text or looks_korean(text):
+        return text
+
+    cached = _translation_cache.get(text)
+    if cached is not None:
+        return cached
+
+    translated = text
+    try:
+        query = urlencode(
+            {
+                "client": "gtx",
+                "sl": "auto",
+                "tl": "ko",
+                "dt": "t",
+                "q": text[:4000],
+            }
+        )
+        with urlopen(
+            f"https://translate.googleapis.com/translate_a/single?{query}",
+            timeout=TRANSLATION_TIMEOUT_SECONDS,
+        ) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        segments = payload[0] if isinstance(payload, list) and payload else []
+        merged = "".join(part[0] for part in segments if isinstance(part, list) and part and part[0])
+        translated = clean_text(merged) or text
+    except (OSError, ValueError, URLError):
+        translated = text
+
+    _translation_cache[text] = translated
+    return translated
+
+
+def hydrate_translations(conn: sqlite3.Connection, row: sqlite3.Row) -> tuple[str, str]:
+    translated_title = clean_text(row["translated_title"] or "")
+    translated_body = clean_text(row["translated_body"] or "")
+    original_title = clean_text(row["title"] or "")
+    original_body = clean_text(row["body"] or "")
+
+    changed = False
+    if not translated_title and original_title:
+        translated_title = translate_to_korean(original_title)
+        changed = translated_title != clean_text(row["translated_title"] or "")
+
+    if not translated_body and original_body:
+        translated_body = translate_to_korean(original_body)
+        changed = changed or translated_body != clean_text(row["translated_body"] or "")
+
+    if changed:
+        conn.execute(
+            """
+            UPDATE seen_items
+            SET translated_title = ?, translated_body = ?
+            WHERE item_id = ?
+            """,
+            (translated_title, translated_body, row["item_id"]),
+        )
+        conn.commit()
+
+    return translated_title, translated_body
+
+
 def fetch_recent_issues(window_minutes: int = DEFAULT_WINDOW_MINUTES, limit: int = DEFAULT_LIMIT) -> list[dict]:
     cutoff = datetime.now(UTC) - timedelta(minutes=max(1, window_minutes))
+    settings = load_ui_settings()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    issues: list[dict] = []
     try:
+        ensure_seen_items_schema(conn)
         rows = conn.execute(
             """
-            SELECT item_id, source, title, url, created_at
+            SELECT item_id, source, title, body, translated_title, translated_body, url, created_at
             FROM seen_items
             WHERE created_at >= ?
             ORDER BY created_at DESC
@@ -47,23 +155,38 @@ def fetch_recent_issues(window_minutes: int = DEFAULT_WINDOW_MINUTES, limit: int
             """,
             (cutoff.isoformat(), max(1, limit)),
         ).fetchall()
+
+        for row in rows:
+            created_at = row["created_at"]
+            created_dt = parse_iso_datetime(created_at)
+            translated_title, translated_body = hydrate_translations(conn, row)
+            title = clean_text(row["title"] or "") or "(제목 없음)"
+            body = clean_text(row["body"] or "")
+            matched_exclude_keyword = match_exclude_keyword(
+                settings.exclude_keywords,
+                title,
+                body,
+                translated_title,
+                translated_body,
+                row["source"] or "",
+            )
+            if matched_exclude_keyword:
+                continue
+            issues.append(
+                {
+                    "item_id": row["item_id"],
+                    "source": row["source"] or "",
+                    "title": title,
+                    "body": body,
+                    "translated_title": translated_title,
+                    "translated_body": translated_body,
+                    "url": row["url"] or "",
+                    "created_at": created_at or "",
+                    "created_at_unix": int(created_dt.timestamp()) if created_dt else 0,
+                }
+            )
     finally:
         conn.close()
-
-    issues: list[dict] = []
-    for row in rows:
-        created_at = row["created_at"]
-        created_dt = parse_iso_datetime(created_at)
-        issues.append(
-            {
-                "item_id": row["item_id"],
-                "source": row["source"] or "",
-                "title": row["title"] or "(제목 없음)",
-                "url": row["url"] or "",
-                "created_at": created_at or "",
-                "created_at_unix": int(created_dt.timestamp()) if created_dt else 0,
-            }
-        )
     return issues
 
 

@@ -291,6 +291,43 @@
       background: #243647;
     }
 
+    .issue-actions {
+      margin-top: auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .tts-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #fff;
+      color: var(--text);
+      text-decoration: none;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .tts-button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 24px rgba(18, 39, 61, 0.08);
+    }
+
+    .tts-button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
     .empty {
       padding: 34px 18px;
       text-align: center;
@@ -365,6 +402,11 @@
             <label><input type="checkbox" id="flashToggle" checked> 새 이슈가 오면 화면 깜박임</label>
           </div>
           <div class="control-card">
+            <strong>한국어 TTS</strong>
+            <label><input type="checkbox" id="ttsToggle" checked> 새 이슈가 오면 한글 번역 내용 읽기</label>
+            <div style="margin-top: 8px; color: var(--muted); font-size: 13px;" id="ttsStatus">브라우저 음성 합성 사용 가능 여부를 확인 중입니다.</div>
+          </div>
+          <div class="control-card">
             <strong>자동 새로고침 주기</strong>
             <div style="color: var(--muted); font-size: 14px;">초 단위로 입력하면 해당 주기로 자동 갱신합니다.</div>
             <input type="number" id="refreshSecondsInput" min="3" step="1" value="10">
@@ -401,6 +443,8 @@
     const refreshTimeEl = document.getElementById("refreshTime");
     const soundToggleEl = document.getElementById("soundToggle");
     const flashToggleEl = document.getElementById("flashToggle");
+    const ttsToggleEl = document.getElementById("ttsToggle");
+    const ttsStatusEl = document.getElementById("ttsStatus");
     const refreshSecondsInputEl = document.getElementById("refreshSecondsInput");
     const filterGoogleNewsEl = document.getElementById("filterGoogleNews");
     const filterTruthSocialEl = document.getElementById("filterTruthSocial");
@@ -416,6 +460,10 @@
     let refreshTimer = null;
     let lastRenderedSignature = "";
     let latestIssues = [];
+    let ttsQueue = [];
+    let isSpeaking = false;
+    let preferredVoice = null;
+    const supportsTts = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
 
     function formatDate(value) {
       if (!value) return "-";
@@ -458,6 +506,134 @@
       } catch (error) {
         console.warn("sound error", error);
       }
+    }
+
+    function getDisplayTitle(issue) {
+      return issue.translated_title || issue.title || "(제목 없음)";
+    }
+
+    function stripTitleSourceSuffix(value) {
+      const text = String(value || "").trim();
+      if (!text) return "";
+      const separators = [" - ", " – ", " — ", " | "];
+      for (const separator of separators) {
+        const index = text.lastIndexOf(separator);
+        if (index > 15) {
+          return text.slice(0, index).trim();
+        }
+      }
+      return text;
+    }
+
+    function getDisplayBody(issue) {
+      return issue.translated_body || issue.body || "";
+    }
+
+    function hasReadableBody(issue) {
+      const body = normalizeTtsText(getDisplayBody(issue));
+      return body && body !== "본문 정보가 없습니다";
+    }
+
+    function normalizeTtsText(value) {
+      return String(value || "")
+        .replaceAll(/https?:\/\/\S+/g, " ")
+        .replaceAll(/[“”"'`]/g, "")
+        .replaceAll(/\[[^\]]+\]/g, " ")
+        .replaceAll(/\s+/g, " ")
+        .trim();
+    }
+
+    function shortenForTts(value, limit = 170) {
+      const text = normalizeTtsText(value);
+      if (!text) return "";
+      if (text.length <= limit) return text;
+      const shortened = text.slice(0, limit);
+      const lastBreak = Math.max(
+        shortened.lastIndexOf("."),
+        shortened.lastIndexOf("!"),
+        shortened.lastIndexOf("?"),
+        shortened.lastIndexOf(","),
+        shortened.lastIndexOf(" ")
+      );
+      return `${(lastBreak > 80 ? shortened.slice(0, lastBreak) : shortened).trim()}...`;
+    }
+
+    function buildTtsText(issue) {
+      const title = shortenForTts(stripTitleSourceSuffix(getDisplayTitle(issue)), 140);
+      return title ? `새 소식입니다. ${title}` : "";
+    }
+
+    function pickKoreanVoice() {
+      if (!supportsTts) return null;
+      const voices = window.speechSynthesis.getVoices();
+      preferredVoice =
+        voices.find((voice) => voice.lang && voice.lang.toLowerCase().startsWith("ko")) ||
+        voices.find((voice) => voice.name && /korean|한국/i.test(voice.name)) ||
+        null;
+      return preferredVoice;
+    }
+
+    function updateTtsStatus() {
+      if (!supportsTts) {
+        ttsToggleEl.checked = false;
+        ttsToggleEl.disabled = true;
+        ttsStatusEl.textContent = "이 브라우저는 TTS를 지원하지 않습니다.";
+        return;
+      }
+
+      pickKoreanVoice();
+      if (preferredVoice) {
+        ttsStatusEl.textContent = `사용 중인 음성: ${preferredVoice.name} (${preferredVoice.lang})`;
+        return;
+      }
+
+      ttsStatusEl.textContent = "한국어 전용 음성을 찾지 못해 기본 음성으로 읽습니다.";
+    }
+
+    function speakNextInQueue() {
+      if (!supportsTts || isSpeaking || !ttsQueue.length) {
+        return;
+      }
+
+      const issue = ttsQueue.shift();
+      const ttsText = buildTtsText(issue);
+      if (!ttsText.trim()) {
+        speakNextInQueue();
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(ttsText);
+      const voice = preferredVoice || pickKoreanVoice();
+      utterance.lang = (voice && voice.lang) || "ko-KR";
+      utterance.voice = voice || null;
+      utterance.rate = voice && voice.lang && voice.lang.toLowerCase().startsWith("ko") ? 0.92 : 0.88;
+      utterance.pitch = 1.02;
+      utterance.volume = 1;
+      isSpeaking = true;
+      utterance.onend = () => {
+        isSpeaking = false;
+        speakNextInQueue();
+      };
+      utterance.onerror = () => {
+        isSpeaking = false;
+        speakNextInQueue();
+      };
+      window.speechSynthesis.speak(utterance);
+    }
+
+    function enqueueTtsIssues(issues) {
+      if (!supportsTts || !ttsToggleEl.checked || !issues.length) {
+        return;
+      }
+      ttsQueue.push(...issues);
+      speakNextInQueue();
+    }
+
+    function speakIssueNow(issue) {
+      if (!supportsTts) return;
+      ttsQueue = [issue];
+      window.speechSynthesis.cancel();
+      isSpeaking = false;
+      speakNextInQueue();
     }
 
     function triggerFlash(count) {
@@ -543,19 +719,28 @@
       issuesEl.innerHTML = visibleIssues.map((issue) => {
         const isNew = newIds.has(issue.item_id);
         const safeTitle = escapeHtml(issue.title);
+        const safeDisplayTitle = escapeHtml(getDisplayTitle(issue));
+        const safeBodyText = hasReadableBody(issue) ? getDisplayBody(issue) : "";
+        const safeBody = escapeHtml(safeBodyText);
         const safeSource = escapeHtml(buildSourceLabel(issue.source));
         const safeUrl = escapeHtml(issue.url);
         const safeRelative = escapeHtml(buildRelativeText(issue.created_at));
         const safeCreatedAt = escapeHtml(formatDate(issue.created_at));
+        const safeItemId = escapeHtml(issue.item_id);
         return `
-          <article class="issue-card ${isNew ? "is-new" : ""}">
+          <article class="issue-card ${isNew ? "is-new" : ""}" data-item-id="${safeItemId}">
             <div class="issue-meta">
               <span class="source-pill">${safeSource}</span>
               <span>${safeRelative}</span>
             </div>
-            <h3 class="issue-title">${safeTitle}</h3>
+            <h3 class="issue-title">${safeDisplayTitle}</h3>
+            ${safeBodyText ? `<p class="issue-desc">${safeBody}</p>` : ""}
+            <p class="issue-desc">원문 제목: ${safeTitle}</p>
             <p class="issue-desc">저장 시각: ${safeCreatedAt}</p>
-            <a class="issue-link" href="${safeUrl}" target="_blank" rel="noreferrer">기사 바로 보기</a>
+            <div class="issue-actions">
+              <button class="tts-button" type="button" data-action="speak" data-item-id="${safeItemId}" ${supportsTts ? "" : "disabled"}>한글 TTS 재생</button>
+              <a class="issue-link" href="${safeUrl}" target="_blank" rel="noreferrer">기사 바로 보기</a>
+            </div>
           </article>
         `;
       }).join("");
@@ -594,12 +779,14 @@
         refreshTimeEl.textContent = formatDate(data.generated_at);
         lastRenderedSignature = renderSignature;
         if (newIds.size > 0) {
+          const visibleNewIssues = data.issues.filter((issue) => newIds.has(issue.item_id) && isVisibleByFilter(issue));
           if (soundToggleEl.checked) {
             playAlertSound();
           }
           if (flashToggleEl.checked) {
             triggerFlash(newIds.size);
           }
+          enqueueTtsIssues(visibleNewIssues.reverse());
         }
       } catch (error) {
         console.error(error);
@@ -645,6 +832,17 @@
       });
     });
 
+    issuesEl.addEventListener("click", (event) => {
+      const button = event.target.closest('[data-action="speak"]');
+      if (!button) {
+        return;
+      }
+      const issue = latestIssues.find((item) => item.item_id === button.dataset.itemId);
+      if (issue) {
+        speakIssueNow(issue);
+      }
+    });
+
     sidebarToggleEl.addEventListener("click", () => {
       if (!window.matchMedia("(max-width: 900px)").matches) {
         return;
@@ -654,7 +852,13 @@
     });
 
     window.addEventListener("resize", syncSidebarForViewport);
+    if (supportsTts) {
+      window.speechSynthesis.onvoiceschanged = () => {
+        updateTtsStatus();
+      };
+    }
 
+    updateTtsStatus();
     refreshIssues();
     restartAutoRefresh();
     syncSidebarForViewport();
