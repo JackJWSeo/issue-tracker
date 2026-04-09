@@ -13,7 +13,7 @@ from config import DB_PATH
 BASE_DIR = Path(__file__).resolve().parent
 DASHBOARD_HTML_PATH = BASE_DIR / "web_dashboard.html"
 DEFAULT_HOST = "0.0.0.0"
-DEFAULT_PORT = 8787
+DEFAULT_PORT = 15242
 DEFAULT_WINDOW_MINUTES = 60
 DEFAULT_LIMIT = 100
 
