@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trump Monitor Dashboard</title>
+  <style>
+    :root {
+      --bg: #eef3f8;
+      --panel: rgba(255, 255, 255, 0.9);
+      --panel-strong: #ffffff;
+      --text: #16202a;
+      --muted: #5e6b78;
+      --accent: #0b6bcb;
+      --accent-soft: #d9ebff;
+      --ring: rgba(11, 107, 203, 0.18);
+      --danger: #d33f49;
+      --shadow: 0 18px 60px rgba(18, 39, 61, 0.12);
+      --border: rgba(18, 39, 61, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(11, 107, 203, 0.14), transparent 28%),
+        radial-gradient(circle at top right, rgba(211, 63, 73, 0.10), transparent 22%),
+        linear-gradient(180deg, #f7fafe 0%, var(--bg) 100%);
+      min-height: 100vh;
+    }
+
+    body.flash {
+      animation: pulse-bg 0.9s ease-in-out 4;
+    }
+
+    @keyframes pulse-bg {
+      0%, 100% { background-color: transparent; }
+      50% { background-color: rgba(211, 63, 73, 0.12); }
+    }
+
+    .page {
+      width: min(1400px, calc(100% - 32px));
+      margin: 24px auto 36px;
+      display: grid;
+      grid-template-columns: 320px minmax(0, 1fr);
+      gap: 22px;
+      align-items: start;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 24px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .content {
+      min-width: 0;
+    }
+
+    .control-panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .control-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .control-card {
+      background: var(--panel-strong);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 12px 14px;
+      box-shadow: 0 8px 24px rgba(18, 39, 61, 0.06);
+    }
+
+    .control-card strong {
+      display: block;
+      font-size: 14px;
+      margin-bottom: 6px;
+    }
+
+    .control-card label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .control-card input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+    }
+
+    .control-card input[type="number"] {
+      width: 100%;
+      margin-top: 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font: inherit;
+      color: var(--text);
+      background: #fff;
+    }
+
+    .filter-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .stats {
+      margin: 0;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .stat {
+      background: rgba(255,255,255,0.86);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px 18px;
+      box-shadow: 0 10px 28px rgba(18, 39, 61, 0.06);
+    }
+
+    .stat .label {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .stat .value {
+      margin-top: 8px;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+    }
+
+    .section-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      margin: 28px 0 16px;
+    }
+
+    .section-title h2 {
+      margin: 0;
+      font-size: 22px;
+      letter-spacing: -0.03em;
+    }
+
+    .section-title p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .issues {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .issue-card {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 20px 22px;
+      box-shadow: 0 18px 38px rgba(18, 39, 61, 0.08);
+      overflow: hidden;
+      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+      min-height: 220px;
+    }
+
+    .issue-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 6px;
+      background: linear-gradient(180deg, var(--accent), #67a7e8);
+    }
+
+    .issue-card.is-new {
+      border-color: rgba(211, 63, 73, 0.35);
+      box-shadow: 0 18px 42px rgba(211, 63, 73, 0.16);
+    }
+
+    .issue-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 22px 48px rgba(18, 39, 61, 0.12);
+    }
+
+    .issue-meta {
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .source-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 600;
+      max-width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .issue-title {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.5;
+      letter-spacing: -0.02em;
+      word-break: keep-all;
+    }
+
+    .issue-desc {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.65;
+      word-break: keep-all;
+    }
+
+    .issue-link {
+      margin-top: auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: var(--text);
+      color: #ffffff;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      transition: background 0.18s ease;
+    }
+
+    .issue-link:hover {
+      background: #243647;
+    }
+
+    .empty {
+      padding: 34px 18px;
+      text-align: center;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.8);
+      border: 1px dashed rgba(18, 39, 61, 0.14);
+      border-radius: 20px;
+    }
+
+    @media (max-width: 900px) {
+      .page {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: static;
+      }
+
+      .stats {
+        grid-template-columns: 1fr;
+      }
+
+      .control-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .issues {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+  <body>
+  <main class="page">
+    <aside class="sidebar">
+      <section class="stats">
+        <div class="stat">
+          <div class="label">최근 1시간 이슈 수</div>
+          <div class="value" id="issueCount">0</div>
+        </div>
+        <div class="stat">
+          <div class="label">가장 최근 등록 시각</div>
+          <div class="value" id="latestTime" style="font-size:20px;">-</div>
+        </div>
+        <div class="stat">
+          <div class="label">마지막 새로고침</div>
+          <div class="value" id="refreshTime" style="font-size:20px;">-</div>
+        </div>
+      </section>
+      <section class="control-panel">
+        <strong>알림 설정</strong>
+        <div class="control-grid">
+          <div class="control-card">
+            <strong>알림음</strong>
+            <label><input type="checkbox" id="soundToggle" checked> 새 이슈가 오면 소리 재생</label>
+          </div>
+          <div class="control-card">
+            <strong>화면 강조</strong>
+            <label><input type="checkbox" id="flashToggle" checked> 새 이슈가 오면 화면 깜박임</label>
+          </div>
+          <div class="control-card">
+            <strong>자동 새로고침 주기</strong>
+            <div style="color: var(--muted); font-size: 14px;">초 단위로 입력하면 해당 주기로 자동 갱신합니다.</div>
+            <input type="number" id="refreshSecondsInput" min="3" step="1" value="10">
+          </div>
+          <div class="control-card">
+            <strong>콘텐츠 종류 필터</strong>
+            <div class="filter-list">
+              <label><input type="checkbox" id="filterGoogleNews" checked> 구글 뉴스</label>
+              <label><input type="checkbox" id="filterTruthSocial" checked> 트루스소셜</label>
+              <label><input type="checkbox" id="filterX" checked> X</label>
+              <label><input type="checkbox" id="filterYoutube" checked> 유튜브</label>
+            </div>
+          </div>
+        </div>
+      </section>
+    </aside>
+
+    <section class="content">
+      <div class="section-title">
+        <h2>실시간 이슈 카드</h2>
+        <p>최근 1시간 기준, 한 번에 최대 100건 표시</p>
+      </div>
+
+      <section id="issues" class="issues"></section>
+    </section>
+  </main>
+
+  <script>
+    const API_URL = "/api/issues?minutes=60&limit=100";
+
+    const issuesEl = document.getElementById("issues");
+    const issueCountEl = document.getElementById("issueCount");
+    const latestTimeEl = document.getElementById("latestTime");
+    const refreshTimeEl = document.getElementById("refreshTime");
+    const soundToggleEl = document.getElementById("soundToggle");
+    const flashToggleEl = document.getElementById("flashToggle");
+    const refreshSecondsInputEl = document.getElementById("refreshSecondsInput");
+    const filterGoogleNewsEl = document.getElementById("filterGoogleNews");
+    const filterTruthSocialEl = document.getElementById("filterTruthSocial");
+    const filterXEl = document.getElementById("filterX");
+    const filterYoutubeEl = document.getElementById("filterYoutube");
+
+    let previousIds = new Set();
+    let hasLoadedOnce = false;
+    let titleFlashTimer = null;
+    let refreshTimer = null;
+    let lastRenderedSignature = "";
+    let latestIssues = [];
+
+    function formatDate(value) {
+      if (!value) return "-";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return new Intl.DateTimeFormat("ko-KR", {
+        dateStyle: "short",
+        timeStyle: "medium",
+      }).format(date);
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function playAlertSound() {
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return;
+        const context = new AudioContextClass();
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(880, context.currentTime);
+        gain.gain.setValueAtTime(0.0001, context.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.14, context.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.45);
+
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start();
+        oscillator.stop(context.currentTime + 0.45);
+        oscillator.onended = () => context.close();
+      } catch (error) {
+        console.warn("sound error", error);
+      }
+    }
+
+    function triggerFlash(count) {
+      document.body.classList.remove("flash");
+      void document.body.offsetWidth;
+      document.body.classList.add("flash");
+
+      if (titleFlashTimer) {
+        clearInterval(titleFlashTimer);
+      }
+
+      let tick = 0;
+      const originalTitle = "Trump Monitor Dashboard";
+      titleFlashTimer = setInterval(() => {
+        document.title = tick % 2 === 0 ? `(${count}) 새 이슈 도착` : originalTitle;
+        tick += 1;
+        if (tick > 7) {
+          clearInterval(titleFlashTimer);
+          titleFlashTimer = null;
+          document.title = originalTitle;
+          document.body.classList.remove("flash");
+        }
+      }, 500);
+    }
+
+    function buildSourceLabel(source) {
+      if (!source) return "알 수 없는 출처";
+      if (source.startsWith("google_news:")) {
+        return `구글 뉴스 · ${source.slice("google_news:".length)}`;
+      }
+      if (source.startsWith("x:")) {
+        return `X · ${source.slice("x:".length)}`;
+      }
+      if (source.startsWith("youtube_live:")) {
+        return `유튜브 라이브 · ${source.slice("youtube_live:".length)}`;
+      }
+      if (source.startsWith("truthsocial:")) {
+        return `트루스소셜 · ${source.slice("truthsocial:".length)}`;
+      }
+      return source;
+    }
+
+    function getSourceType(source) {
+      if (!source) return "unknown";
+      if (source.startsWith("google_news:")) return "google_news";
+      if (source.startsWith("truthsocial:")) return "truthsocial";
+      if (source.startsWith("x:")) return "x";
+      if (source.startsWith("youtube_live:")) return "youtube";
+      return "unknown";
+    }
+
+    function isVisibleByFilter(issue) {
+      const sourceType = getSourceType(issue.source);
+      if (sourceType === "google_news") return filterGoogleNewsEl.checked;
+      if (sourceType === "truthsocial") return filterTruthSocialEl.checked;
+      if (sourceType === "x") return filterXEl.checked;
+      if (sourceType === "youtube") return filterYoutubeEl.checked;
+      return true;
+    }
+
+    function buildRelativeText(value) {
+      if (!value) return "등록 시각 없음";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      const diffMinutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
+      if (diffMinutes < 1) return "방금 등록";
+      if (diffMinutes < 60) return `${diffMinutes}분 전 등록`;
+      const diffHours = Math.floor(diffMinutes / 60);
+      return `${diffHours}시간 전 등록`;
+    }
+
+    function renderIssues(issues, newIds) {
+      const visibleIssues = issues.filter(isVisibleByFilter);
+
+      issueCountEl.textContent = String(visibleIssues.length);
+      latestTimeEl.textContent = visibleIssues.length ? formatDate(visibleIssues[0].created_at) : "-";
+
+      if (!visibleIssues.length) {
+        issuesEl.innerHTML = '<div class="empty">선택한 조건에 맞는 최근 1시간 이슈가 없습니다.</div>';
+        return;
+      }
+
+      issuesEl.innerHTML = visibleIssues.map((issue) => {
+        const isNew = newIds.has(issue.item_id);
+        const safeTitle = escapeHtml(issue.title);
+        const safeSource = escapeHtml(buildSourceLabel(issue.source));
+        const safeUrl = escapeHtml(issue.url);
+        const safeRelative = escapeHtml(buildRelativeText(issue.created_at));
+        const safeCreatedAt = escapeHtml(formatDate(issue.created_at));
+        return `
+          <article class="issue-card ${isNew ? "is-new" : ""}">
+            <div class="issue-meta">
+              <span class="source-pill">${safeSource}</span>
+              <span>${safeRelative}</span>
+            </div>
+            <h3 class="issue-title">${safeTitle}</h3>
+            <p class="issue-desc">저장 시각: ${safeCreatedAt}</p>
+            <a class="issue-link" href="${safeUrl}" target="_blank" rel="noreferrer">기사 바로 보기</a>
+          </article>
+        `;
+      }).join("");
+    }
+
+    async function refreshIssues() {
+      try {
+        const response = await fetch(API_URL, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        latestIssues = data.issues;
+        const ids = new Set(data.issues.map((issue) => issue.item_id));
+        const newIds = new Set();
+        const renderSignature = JSON.stringify(data.issues.map((issue) => [issue.item_id, issue.created_at]));
+
+        if (hasLoadedOnce) {
+          for (const id of ids) {
+            if (!previousIds.has(id)) {
+              newIds.add(id);
+            }
+          }
+        }
+
+        previousIds = ids;
+        const hasDataChanged = !hasLoadedOnce || renderSignature !== lastRenderedSignature;
+        hasLoadedOnce = true;
+
+        if (!hasDataChanged) {
+          return;
+        }
+
+        renderIssues(data.issues, newIds);
+        refreshTimeEl.textContent = formatDate(data.generated_at);
+        lastRenderedSignature = renderSignature;
+        if (newIds.size > 0) {
+          if (soundToggleEl.checked) {
+            playAlertSound();
+          }
+          if (flashToggleEl.checked) {
+            triggerFlash(newIds.size);
+          }
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    function getRefreshIntervalMs() {
+      const seconds = Number.parseInt(refreshSecondsInputEl.value, 10);
+      if (Number.isNaN(seconds)) {
+        return 10000;
+      }
+      return Math.max(3, seconds) * 1000;
+    }
+
+    function restartAutoRefresh() {
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+      }
+      refreshTimer = setInterval(() => {
+        refreshIssues();
+      }, getRefreshIntervalMs());
+    }
+
+    refreshSecondsInputEl.addEventListener("change", () => {
+      const seconds = Math.max(3, Number.parseInt(refreshSecondsInputEl.value || "10", 10) || 10);
+      refreshSecondsInputEl.value = String(seconds);
+      restartAutoRefresh();
+    });
+
+    [filterGoogleNewsEl, filterTruthSocialEl, filterXEl, filterYoutubeEl].forEach((element) => {
+      element.addEventListener("change", () => {
+        renderIssues(latestIssues, new Set());
+      });
+    });
+
+    refreshIssues();
+    restartAutoRefresh();
+  </script>
+</body>
+</html>
