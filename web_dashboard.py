@@ -1,7 +1,7 @@
 import json
 import re
 import sqlite3
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.utils import formatdate
 from html import unescape
 from http import HTTPStatus
@@ -62,8 +62,8 @@ def parse_iso_datetime(value: str | None) -> datetime | None:
         return None
 
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt.astimezone(UTC)
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def clean_text(value: str) -> str:
@@ -138,7 +138,7 @@ def hydrate_translations(conn: sqlite3.Connection, row: sqlite3.Row) -> tuple[st
 
 
 def fetch_recent_issues(window_minutes: int = DEFAULT_WINDOW_MINUTES, limit: int = DEFAULT_LIMIT) -> list[dict]:
-    cutoff = datetime.now(UTC) - timedelta(minutes=max(1, window_minutes))
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=max(1, window_minutes))
     settings = load_ui_settings()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -198,7 +198,7 @@ def build_payload(window_minutes: int = DEFAULT_WINDOW_MINUTES, limit: int = DEF
         "window_minutes": window_minutes,
         "limit": limit,
         "count": len(issues),
-        "generated_at": datetime.now(UTC).isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "newest_issue_id": newest_issue_id,
         "newest_created_at": newest_created_at,
         "issues": issues,

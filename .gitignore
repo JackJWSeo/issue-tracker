@@ -1,4 +1,9 @@
 *.pyc
 *.sqlite3
+*.wav
 trump_monitor_tool.py
 secrets.dev.json
+tts_cash/
+MeloTTS-Windows/
+.venv310/
+__pycashe__/
