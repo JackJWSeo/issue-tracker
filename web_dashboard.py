@@ -73,6 +73,27 @@ def clean_text(value: str) -> str:
     return text.strip()
 
 
+def normalize_title_for_dedupe(value: str) -> str:
+    text = clean_text(value).lower()
+    text = (
+        text.replace("’", "'")
+        .replace("‘", "'")
+        .replace("“", '"')
+        .replace("”", '"')
+        .replace("–", "-")
+        .replace("—", "-")
+    )
+    text = re.sub(r"\s+", " ", text)
+    while True:
+        updated = re.sub(r"\s(?:\||-)\s[^|^-]{1,80}$", "", text).strip()
+        if updated == text:
+            break
+        text = updated
+    text = re.sub(r"[^0-9a-z가-힣\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
 def translate_to_korean(text: str) -> str:
     text = clean_text(text)
     if not text or looks_korean(text):
@@ -143,8 +164,11 @@ def fetch_recent_issues(window_minutes: int = DEFAULT_WINDOW_MINUTES, limit: int
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     issues: list[dict] = []
+    dedupe_candidates: list[dict] = []
+    seen_title_keys: set[str] = set()
     try:
         ensure_seen_items_schema(conn)
+        candidate_limit = min(max(1, limit) * 4, 500)
         rows = conn.execute(
             """
             SELECT item_id, source, title, body, translated_title, translated_body, url, created_at
@@ -153,7 +177,7 @@ def fetch_recent_issues(window_minutes: int = DEFAULT_WINDOW_MINUTES, limit: int
             ORDER BY created_at DESC
             LIMIT ?
             """,
-            (cutoff.isoformat(), max(1, limit)),
+            (cutoff.isoformat(), candidate_limit),
         ).fetchall()
 
         for row in rows:
@@ -172,7 +196,7 @@ def fetch_recent_issues(window_minutes: int = DEFAULT_WINDOW_MINUTES, limit: int
             )
             if matched_exclude_keyword:
                 continue
-            issues.append(
+            dedupe_candidates.append(
                 {
                     "item_id": row["item_id"],
                     "source": row["source"] or "",
@@ -185,6 +209,18 @@ def fetch_recent_issues(window_minutes: int = DEFAULT_WINDOW_MINUTES, limit: int
                     "created_at_unix": int(created_dt.timestamp()) if created_dt else 0,
                 }
             )
+
+        for issue in sorted(dedupe_candidates, key=lambda item: (item["created_at_unix"], item["item_id"])):
+            translated_key = normalize_title_for_dedupe(issue.get("translated_title") or "")
+            original_key = normalize_title_for_dedupe(issue.get("title") or "")
+            dedupe_keys = {key for key in (translated_key, original_key) if key}
+            if dedupe_keys and any(key in seen_title_keys for key in dedupe_keys):
+                continue
+            seen_title_keys.update(dedupe_keys)
+            issues.append(issue)
+
+        issues.sort(key=lambda item: (item["created_at_unix"], item["item_id"]), reverse=True)
+        issues = issues[: max(1, limit)]
     finally:
         conn.close()
     return issues
