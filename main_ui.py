@@ -25,6 +25,7 @@ class MonitorUI:
         self.stop_event = threading.Event()
 
         self.settings = load_ui_settings()
+        self.monitor_poll_seconds_var = tk.IntVar(value=self.settings.monitor_poll_seconds)
         self.telegram_enabled_var = tk.BooleanVar(value=self.settings.telegram_enabled)
         self.use_recent_hours_filter_var = tk.BooleanVar(value=self.settings.use_recent_hours_filter)
         self.recent_hours_var = tk.IntVar(value=self.settings.recent_hours)
@@ -90,9 +91,22 @@ class MonitorUI:
         ttk.Label(time_filter_frame, text="시간").grid(row=1, column=2, sticky="w", padx=(6, 0))
         hours_spin.bind("<KeyRelease>", lambda _event: self.on_setting_changed())
 
-        ttk.Label(time_filter_frame, text="제외 키워드:").grid(row=2, column=0, sticky="nw", padx=(0, 6), pady=(10, 0))
+        ttk.Label(time_filter_frame, text="모니터링 주기:").grid(row=2, column=0, sticky="w", padx=(0, 6), pady=(10, 0))
+        poll_spin = ttk.Spinbox(
+            time_filter_frame,
+            from_=5,
+            to=3600,
+            textvariable=self.monitor_poll_seconds_var,
+            width=8,
+            command=self.on_setting_changed,
+        )
+        poll_spin.grid(row=2, column=1, sticky="w", pady=(10, 0))
+        ttk.Label(time_filter_frame, text="초").grid(row=2, column=2, sticky="w", padx=(6, 0), pady=(10, 0))
+        poll_spin.bind("<KeyRelease>", lambda _event: self.on_setting_changed())
+
+        ttk.Label(time_filter_frame, text="제외 키워드:").grid(row=3, column=0, sticky="nw", padx=(0, 6), pady=(10, 0))
         exclude_entry = ttk.Entry(time_filter_frame, textvariable=self.exclude_keywords_var)
-        exclude_entry.grid(row=2, column=1, columnspan=3, sticky="ew", pady=(10, 0))
+        exclude_entry.grid(row=3, column=1, columnspan=3, sticky="ew", pady=(10, 0))
         exclude_entry.bind("<KeyRelease>", lambda _event: self.on_setting_changed())
 
         checkboxes = [
@@ -141,6 +155,7 @@ class MonitorUI:
 
     def build_settings(self) -> UISettings:
         return UISettings(
+            monitor_poll_seconds=max(5, int(self.monitor_poll_seconds_var.get() or 45)),
             telegram_enabled=self.telegram_enabled_var.get(),
             use_recent_hours_filter=self.use_recent_hours_filter_var.get(),
             recent_hours=max(1, int(self.recent_hours_var.get() or 24)),
@@ -156,6 +171,7 @@ class MonitorUI:
     def build_preview_text(self) -> str:
         settings = self.build_settings()
         lines = []
+        lines.append(f"모니터링 주기: {settings.monitor_poll_seconds}초")
         lines.append("텔레그램 전송: 켜짐" if settings.telegram_enabled else "텔레그램 전송: 꺼짐")
         if settings.include_topic:
             lines.append("분류: 이란 전쟁 관련")
@@ -172,6 +188,8 @@ class MonitorUI:
         return "\n".join(lines)
 
     def on_setting_changed(self) -> None:
+        if self.monitor_poll_seconds_var.get() < 5:
+            self.monitor_poll_seconds_var.set(5)
         if self.recent_hours_var.get() < 1:
             self.recent_hours_var.set(1)
         self.preview_var.set(self.build_preview_text())

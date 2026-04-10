@@ -11,13 +11,12 @@ from urllib.error import URLError
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import urlopen
 
-from config import DB_PATH
+from config import DB_PATH, RESOURCE_DIR
 from ui_settings import load_ui_settings
 from utils import looks_korean, match_exclude_keyword
 
 
-BASE_DIR = Path(__file__).resolve().parent
-DASHBOARD_HTML_PATH = BASE_DIR / "web_dashboard.html"
+DASHBOARD_HTML_PATH = RESOURCE_DIR / "web_dashboard.html"
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 15242
 DEFAULT_WINDOW_MINUTES = 60

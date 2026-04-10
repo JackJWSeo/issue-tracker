@@ -22,7 +22,12 @@ from sources.x_monitor import fetch_x_posts
 from sources.youtube_live import fetch_youtube_live
 from sources.youtube_stt import enrich_item_with_stt_summary
 from ui_settings import UISettings, load_ui_settings
-from utils import contains_iran_war_keywords, is_within_recent_hours, match_exclude_keyword, parse_dt
+from utils import (
+    classify_trump_content,
+    is_within_recent_hours,
+    match_exclude_keyword,
+    parse_dt,
+)
 
 
 LogFn = Callable[[str], None]
@@ -109,11 +114,12 @@ async def monitor_loop(
         notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
         ai_client = None
         settings = settings or load_ui_settings()
+        poll_seconds = max(5, int(getattr(settings, "monitor_poll_seconds", POLL_SECONDS) or POLL_SECONDS))
         if OPENAI_API_KEY:
             log("[INFO] AI 요약 기능은 주석 처리되어 비활성화됨")
 
         log("[START] Trump Monitor 시작")
-        log(f"[INFO] poll={POLL_SECONDS}s db={DB_PATH}")
+        log(f"[INFO] poll={poll_seconds}s db={DB_PATH}")
 
         while stop_event is None or not stop_event.is_set():
             try:
@@ -129,7 +135,6 @@ async def monitor_loop(
                     if db.has_seen(item.item_id) or db.has_ignored(item.item_id):
                         continue
 
-                    item.is_iran_war_related = contains_iran_war_keywords(item.title, item.body)
                     item = enrich_item_with_stt_summary(item, ai_client)
                     display_title = item.translated_title or item.title
                     matched_exclude_keyword = match_exclude_keyword(
@@ -139,6 +144,13 @@ async def monitor_loop(
                         item.translated_title,
                         item.translated_body,
                     )
+                    content_topic = classify_trump_content(
+                        item.title,
+                        item.body,
+                        item.translated_title,
+                        item.translated_body,
+                    )
+                    item.is_iran_war_related = content_topic == "iran_war"
 
                     if matched_exclude_keyword:
                         log(
@@ -146,16 +158,32 @@ async def monitor_loop(
                             f"{item.source} | {display_title[:80]}"
                         )
                         db.mark_ignored(item)
-                    elif item.is_iran_war_related:
-                        log(f"[MATCH] 이란 전쟁 관련 감지: {item.source} | {display_title[:80]}")
+                    elif not content_topic:
+                        log(f"[SKIP] 관심 주제 아님: {item.source} | {display_title[:80]}")
+                        db.mark_ignored(item)
+                    else:
+                        existing_item_id, similar_title, similarity_score, duplicate_count = db.find_similar_seen_title(
+                            item.title,
+                            topic_tag=content_topic,
+                            threshold=0.95,
+                        )
+                        if similar_title:
+                            updated_duplicate_count = db.increment_duplicate_count(existing_item_id)
+                            log(
+                                f"[SKIP] 유사 제목 중복({similarity_score:.2%}, dup={updated_duplicate_count}): "
+                                f"{item.source} | {display_title[:80]} ~= {similar_title[:80]}"
+                            )
+                            db.mark_ignored(item)
+                            new_count += 1
+                            await asyncio.sleep(0.6)
+                            continue
+
+                        log(f"[MATCH] {content_topic} 관련 감지: {item.source} | {display_title[:80]}")
                         if settings.telegram_enabled:
                             notifier.send(format_alert(item, settings))
                         else:
                             log("[TELEGRAM] 전송 비활성화 상태라 메시지를 보내지 않음")
-                        db.mark_seen(item)
-                    else:
-                        log(f"[SKIP] 일반 항목 스킵: {item.source} | {display_title[:80]}")
-                        db.mark_seen(item)
+                        db.mark_seen(item, topic_tag=content_topic)
                     new_count += 1
                     await asyncio.sleep(0.6)
 
@@ -168,7 +196,7 @@ async def monitor_loop(
             if stop_event is not None and stop_event.is_set():
                 break
 
-            await asyncio.sleep(POLL_SECONDS)
+            await asyncio.sleep(poll_seconds)
     finally:
         db.close()
 

@@ -1,9 +1,10 @@
 {
-  "telegram_enabled": true,
+  "monitor_poll_seconds": 90,
+  "telegram_enabled": false,
   "use_recent_hours_filter": true,
   "recent_hours": 1,
-  "exclude_keywords": "melania, melania trump, 멜라니아",
-  "include_topic": true,
+  "exclude_keywords": "melania, melania trump, 멜라니아, 멜라니아 트럼프, ivanka, ivanka trump, 이방카, 이방카 트럼프, donald trump jr, donald jr, don jr, donald trump junior, 트럼프 주니어, 도널드 트럼프 주니어, eric, eric trump, 에릭, 에릭 트럼프, tiffany, tiffany trump, 티파니, 티파니 트럼프, barron, barron trump, 배런, 배런 트럼프, lara, lara trump, 라라, 라라 트럼프, vanessa trump, 바네사 트럼프, kai trump, 카이 트럼프",
+  "include_topic": false,
   "include_source": true,
   "include_time": false,
   "include_title": true,

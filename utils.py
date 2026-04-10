@@ -1,11 +1,14 @@
 import hashlib
 import re
+from difflib import SequenceMatcher
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
 from config import (
+    EPSTEIN_KEYWORDS,
     HIGH_PRIORITY_KEYWORDS,
+    IMPEACHMENT_KEYWORDS,
     IRAN_CONFLICT_KEYWORDS,
     LOCAL_TIMEZONE,
     IRAN_SECONDARY_TOPIC_KEYWORDS,
@@ -60,6 +63,44 @@ def match_exclude_keyword(exclude_keywords: str, *parts: str) -> str:
         if keyword in text:
             return keyword
     return ""
+
+
+def classify_trump_content(*parts: str) -> str:
+    text = normalize_text(*parts)
+    if contains_iran_war_keywords(text):
+        return "iran_war"
+    if any(keyword in text for keyword in EPSTEIN_KEYWORDS):
+        return "epstein"
+    if any(keyword in text for keyword in IMPEACHMENT_KEYWORDS):
+        return "impeachment"
+    return ""
+
+
+def normalize_title_for_dedupe(title: str) -> str:
+    text = (title or "").strip()
+    separator_index = text.rfind("-")
+    if separator_index < 0:
+        for separator in ("–", "—"):
+            separator_index = text.rfind(separator)
+            if separator_index >= 0:
+                break
+
+    if separator_index >= 0 and separator_index >= len(text) * 0.5:
+        text = text[:separator_index].strip()
+
+    text = text.lower()
+    text = re.sub(r"\[[^\]]*\]|\([^\)]*\)", " ", text)
+    text = re.sub(r"\b(live|breaking|watch live|stream|official|full speech|full video)\b", " ", text)
+    text = re.sub(r"https?://\S+", " ", text)
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def title_similarity(left: str, right: str) -> float:
+    if not left or not right:
+        return 0.0
+    return SequenceMatcher(None, left, right).ratio()
 
 
 def looks_korean(text: str) -> bool:

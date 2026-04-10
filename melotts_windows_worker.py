@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import os
 import sys
@@ -29,6 +31,10 @@ def emit(prefix: str, payload: dict | None = None) -> None:
     print(f"{prefix}{json.dumps(payload, ensure_ascii=False)}", flush=True)
 
 
+def log_message(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
+
+
 def prepend_silence_to_wav(path: Path, milliseconds: int = 420) -> None:
     with wave.open(str(path), "rb") as reader:
         params = reader.getparams()
@@ -43,15 +49,29 @@ def prepend_silence_to_wav(path: Path, milliseconds: int = 420) -> None:
         writer.writeframes(silence + frames)
 
 
+@contextlib.contextmanager
+def suppress_noisy_output() -> io.StringIO:
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
+        yield buffer
+
+
 def main() -> int:
     if hasattr(sys.stdin, "reconfigure"):
         sys.stdin.reconfigure(encoding="utf-8", errors="replace")
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-    model = TTS(language="KR", device="cpu")
+    with suppress_noisy_output() as startup_logs:
+        model = TTS(language="KR", device="cpu")
     speaker_ids = model.hps.data.spk2id
     speaker_id = speaker_ids["KR"]
+    startup_output = startup_logs.getvalue().strip()
+    if startup_output:
+        for line in startup_output.splitlines():
+            log_message(line)
     emit("__READY__", {"speaker": "KR"})
 
     for raw_line in sys.stdin:
@@ -86,8 +106,13 @@ def main() -> int:
         try:
             target = Path(output_path)
             target.parent.mkdir(parents=True, exist_ok=True)
-            model.tts_to_file(text, speaker_id, str(target), speed=speed)
+            with suppress_noisy_output() as synth_logs:
+                model.tts_to_file(text, speaker_id, str(target), speed=speed)
             prepend_silence_to_wav(target, milliseconds=leading_silence_ms)
+            synth_output = synth_logs.getvalue().strip()
+            if synth_output:
+                for line in synth_output.splitlines():
+                    log_message(line)
             emit("__RESULT__", {"ok": True, "output_path": str(target)})
         except Exception as error:
             emit("__RESULT__", {"ok": False, "error": str(error)})

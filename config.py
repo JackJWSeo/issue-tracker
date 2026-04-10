@@ -1,9 +1,13 @@
 import json
 import os
+import sys
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-SECRETS_PATH = Path(os.getenv("SECRETS_PATH", BASE_DIR / "secrets.dev.json"))
+SOURCE_DIR = Path(__file__).resolve().parent
+RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", SOURCE_DIR))
+APP_BASE_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else SOURCE_DIR
+BASE_DIR = APP_BASE_DIR
+SECRETS_PATH = Path(os.getenv("SECRETS_PATH", APP_BASE_DIR / "secrets.dev.json"))
 
 
 def load_dev_secrets() -> dict:
@@ -45,7 +49,7 @@ OPENAI_API_KEY = get_secret("OPENAI_API_KEY")
 TRUTHSOCIAL_BASE_URL = get_secret("TRUTHSOCIAL_BASE_URL", "https://truthsocial.com").rstrip("/")
 
 POLL_SECONDS = int(get_secret("POLL_SECONDS", "45"))
-DB_PATH = get_secret("DB_PATH", str(BASE_DIR / "trump_monitor.sqlite3"))
+DB_PATH = get_secret("DB_PATH", str(APP_BASE_DIR / "trump_monitor.sqlite3"))
 REQUEST_TIMEOUT = int(get_secret("REQUEST_TIMEOUT", "20"))
 OPENAI_SUMMARY_MODEL = get_secret("OPENAI_SUMMARY_MODEL", "gpt-4.1-mini")
 USE_AI_IRAN_WAR_FILTER = get_secret("USE_AI_IRAN_WAR_FILTER", "1").lower() in {"1", "true", "yes", "on"}
@@ -136,4 +140,20 @@ IRAN_WAR_STRICT_KEYWORDS = [
     "iran nuclear site",
     "israel iran conflict",
     "iran israel war",
+]
+
+EPSTEIN_KEYWORDS = [
+    "epstein",
+    "jeffrey epstein",
+    "epstein files",
+    "epstein list",
+    "epstein case",
+    "epstein scandal",
+]
+
+IMPEACHMENT_KEYWORDS = [
+    "impeach",
+    "impeached",
+    "impeachment",
+    "articles of impeachment",
 ]

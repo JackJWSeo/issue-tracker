@@ -356,6 +356,16 @@
       border-radius: 20px;
     }
 
+    @media (max-width: 1180px) {
+      .page {
+        grid-template-columns: 300px minmax(0, 1fr);
+      }
+
+      .issues {
+        grid-template-columns: 1fr;
+      }
+    }
+
     @media (max-width: 900px) {
       .page {
         grid-template-columns: 1fr;

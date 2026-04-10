@@ -2,6 +2,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 from models import Item
+from utils import normalize_title_for_dedupe, title_similarity
 
 
 class StateDB:
@@ -33,6 +34,10 @@ class StateDB:
             ("body", "TEXT"),
             ("translated_title", "TEXT"),
             ("translated_body", "TEXT"),
+            ("normalized_title", "TEXT"),
+            ("topic_tag", "TEXT"),
+            ("duplicate_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("last_duplicate_at", "TEXT"),
         ):
             if column_name not in existing_columns:
                 cur.execute(f"ALTER TABLE seen_items ADD COLUMN {column_name} {column_type}")
@@ -65,14 +70,16 @@ class StateDB:
         cur.execute("SELECT 1 FROM ignored_items WHERE item_id = ? LIMIT 1", (item_id,))
         return cur.fetchone() is not None
 
-    def mark_seen(self, item: Item):
+    def mark_seen(self, item: Item, topic_tag: str = ""):
         cur = self.conn.cursor()
+        normalized_title = normalize_title_for_dedupe(item.title)
         cur.execute(
             """
             INSERT OR IGNORE INTO seen_items(
-                item_id, source, title, body, translated_title, translated_body, url, created_at
+                item_id, source, title, body, translated_title, translated_body, url, created_at,
+                normalized_title, topic_tag, duplicate_count, last_duplicate_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 item.item_id,
@@ -83,9 +90,86 @@ class StateDB:
                 item.translated_body,
                 item.url,
                 datetime.now(timezone.utc).isoformat(),
+                normalized_title,
+                topic_tag,
+                0,
+                None,
             ),
         )
         self.conn.commit()
+
+    def find_similar_seen_title(
+        self,
+        title: str,
+        topic_tag: str = "",
+        threshold: float = 0.95,
+    ) -> tuple[str, str, float, int]:
+        normalized_title = normalize_title_for_dedupe(title)
+        if not normalized_title:
+            return "", "", 0.0, 0
+
+        cur = self.conn.cursor()
+        if topic_tag:
+            cur.execute(
+                """
+                SELECT item_id, title, normalized_title, duplicate_count
+                FROM seen_items
+                WHERE normalized_title IS NOT NULL
+                  AND normalized_title != ''
+                  AND topic_tag = ?
+                """,
+                (topic_tag,),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT item_id, title, normalized_title, duplicate_count
+                FROM seen_items
+                WHERE normalized_title IS NOT NULL
+                  AND normalized_title != ''
+                """
+            )
+
+        best_item_id = ""
+        best_title = ""
+        best_score = 0.0
+        best_duplicate_count = 0
+        for existing_item_id, existing_title, existing_normalized, existing_duplicate_count in cur.fetchall():
+            score = title_similarity(normalized_title, existing_normalized or "")
+            if score > best_score:
+                best_score = score
+                best_item_id = existing_item_id or ""
+                best_title = existing_title or ""
+                best_duplicate_count = int(existing_duplicate_count or 0)
+
+        if best_score >= threshold:
+            return best_item_id, best_title, best_score, best_duplicate_count
+        return "", "", best_score, 0
+
+    def increment_duplicate_count(self, item_id: str) -> int:
+        cur = self.conn.cursor()
+        now = datetime.now(timezone.utc).isoformat()
+        cur.execute(
+            """
+            UPDATE seen_items
+            SET duplicate_count = COALESCE(duplicate_count, 0) + 1,
+                last_duplicate_at = ?
+            WHERE item_id = ?
+            """,
+            (now, item_id),
+        )
+        self.conn.commit()
+        cur.execute(
+            """
+            SELECT COALESCE(duplicate_count, 0)
+            FROM seen_items
+            WHERE item_id = ?
+            LIMIT 1
+            """,
+            (item_id,),
+        )
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
 
     def get_value(self, key: str, default: str = "") -> str:
         cur = self.conn.cursor()

@@ -1,0 +1,4 @@
+# One blocked Unicode code point per line.
+# Format:
+# U+200B # ZERO WIDTH SPACE
+# New entries are appended automatically when TTS/output errors reveal a problematic character.

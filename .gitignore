@@ -5,5 +5,7 @@ trump_monitor_tool.py
 secrets.dev.json
 tts_cash/
 MeloTTS-Windows/
+build/
+dist/
 .venv310/
 __pycashe__/

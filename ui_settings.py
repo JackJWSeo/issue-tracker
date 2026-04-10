@@ -9,10 +9,20 @@ UI_SETTINGS_PATH = BASE_DIR / "ui_settings.json"
 
 @dataclass
 class UISettings:
+    monitor_poll_seconds: int = 45
     telegram_enabled: bool = True
     use_recent_hours_filter: bool = True
     recent_hours: int = 24
-    exclude_keywords: str = "melania, melania trump, 멜라니아"
+    exclude_keywords: str = (
+        "melania, melania trump, 멜라니아, 멜라니아 트럼프, "
+        "ivanka, ivanka trump, 이방카, 이방카 트럼프, "
+        "donald trump jr, donald jr, don jr, donald trump junior, 트럼프 주니어, 도널드 트럼프 주니어, "
+        "eric, eric trump, 에릭, 에릭 트럼프, "
+        "tiffany, tiffany trump, 티파니, 티파니 트럼프, "
+        "barron, barron trump, 배런, 배런 트럼프, "
+        "lara, lara trump, 라라, 라라 트럼프, "
+        "vanessa trump, 바네사 트럼프, kai trump, 카이 트럼프"
+    )
     include_topic: bool = True
     include_source: bool = True
     include_time: bool = True
