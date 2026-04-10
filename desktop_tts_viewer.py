@@ -21,6 +21,7 @@ APP_POLL_SECONDS = 5
 MELOTTS_WINDOWS_ENV = "melotts-win"
 DEFAULT_MELO_SPEED = 1.0
 DEFAULT_LEADING_SILENCE_MS = 420
+WAV_CACHE_MAX_AGE_SECONDS = 60 * 60
 WORKER_READY_TIMEOUT_SECONDS = 180
 WORKER_COMMAND_TIMEOUT_SECONDS = 180
 CACHE_DIR = BASE_DIR / "tts_cache"
@@ -315,6 +316,18 @@ class DashboardTTSViewer:
         print(f"[APP] {text}")
         self.last_status = text
 
+    def prune_old_wav_cache(self) -> None:
+        cutoff = time.time() - WAV_CACHE_MAX_AGE_SECONDS
+        for wav_path in CACHE_DIR.glob("*.wav"):
+            try:
+                if wav_path.stat().st_mtime < cutoff:
+                    wav_path.unlink()
+                    print(f"[APP] 오래된 wav 삭제: {wav_path.name}")
+            except FileNotFoundError:
+                continue
+            except OSError as error:
+                print(f"[APP] wav 삭제 실패: {wav_path.name} / {error}")
+
     def settings_summary(self) -> str:
         return f"속도 {self.settings['speed']:.2f}, 시작 여유 {self.settings['leading_silence_ms']}ms"
 
@@ -332,6 +345,7 @@ class DashboardTTSViewer:
         self.set_status(f"현재 TTS 설정: {self.settings_summary()}")
 
     def speak_with_melotts_windows(self, title: str, cache_key: str) -> None:
+        self.prune_old_wav_cache()
         settings_key = f"{cache_key}_s{str(self.settings['speed']).replace('.', '_')}_p{self.settings['leading_silence_ms']}"
         cache_path = self.get_cache_path(settings_key)
         if not cache_path.exists():
