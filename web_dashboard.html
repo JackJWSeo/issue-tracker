@@ -50,6 +50,7 @@
       top: 24px;
       display: grid;
       gap: 16px;
+      margin-top: 78px;
     }
 
     .sidebar-toggle {
@@ -362,6 +363,7 @@
 
       .sidebar {
         position: static;
+        margin-top: 0;
       }
 
       .sidebar-toggle {
@@ -408,14 +410,6 @@
           <div class="label">최근 1시간 이슈 수</div>
           <div class="value" id="issueCount">0</div>
         </div>
-        <div class="stat">
-          <div class="label">가장 최근 등록 시각</div>
-          <div class="value" id="latestTime" style="font-size:20px;">-</div>
-        </div>
-        <div class="stat">
-          <div class="label">마지막 새로고침</div>
-          <div class="value" id="refreshTime" style="font-size:20px;">-</div>
-        </div>
       </section>
       <section class="control-panel">
         <strong>알림 설정</strong>
@@ -457,8 +451,6 @@
 
     const issuesEl = document.getElementById("issues");
     const issueCountEl = document.getElementById("issueCount");
-    const latestTimeEl = document.getElementById("latestTime");
-    const refreshTimeEl = document.getElementById("refreshTime");
     const soundToggleEl = document.getElementById("soundToggle");
     const refreshSecondsInputEl = document.getElementById("refreshSecondsInput");
     const filterGoogleNewsEl = document.getElementById("filterGoogleNews");
@@ -579,7 +571,6 @@
       const visibleIssues = issues.filter(isVisibleByFilter);
 
       issueCountEl.textContent = String(visibleIssues.length);
-      latestTimeEl.textContent = visibleIssues.length ? formatDate(visibleIssues[0].created_at) : "-";
 
       if (!visibleIssues.length) {
         issuesEl.innerHTML = '<div class="empty">선택한 조건에 맞는 최근 1시간 이슈가 없습니다.</div>';
@@ -642,7 +633,6 @@
         }
 
         renderIssues(data.issues, newIds);
-        refreshTimeEl.textContent = formatDate(data.generated_at);
         lastRenderedSignature = renderSignature;
         if (newIds.size > 0) {
           if (soundToggleEl.checked) {
