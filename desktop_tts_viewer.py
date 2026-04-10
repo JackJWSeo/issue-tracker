@@ -19,12 +19,14 @@ from web_dashboard import DEFAULT_PORT, DEFAULT_WINDOW_MINUTES, run_server
 APP_HOST = "192.168.2.11"
 APP_POLL_SECONDS = 5
 MELOTTS_WINDOWS_ENV = "melotts-win"
-MELO_SPEED = 1.0
+DEFAULT_MELO_SPEED = 1.0
+DEFAULT_LEADING_SILENCE_MS = 420
 WORKER_READY_TIMEOUT_SECONDS = 180
 WORKER_COMMAND_TIMEOUT_SECONDS = 180
 CACHE_DIR = BASE_DIR / "tts_cache"
 WEBVIEW_STORAGE_DIR = Path.home() / "AppData" / "Local" / "IssueTrackerWebView"
 WORKER_SCRIPT_PATH = BASE_DIR / "melotts_windows_worker.py"
+SETTINGS_PATH = BASE_DIR / "tts_viewer_settings.json"
 PROXY_ENV_KEYS = [
     "HTTP_PROXY",
     "HTTPS_PROXY",
@@ -51,6 +53,34 @@ def clean_title_for_tts(value: str) -> str:
     return text
 
 
+def build_issue_cache_key(issue: dict) -> str:
+    item_id = str(issue.get("item_id") or "").strip()
+    created_at = str(issue.get("created_at") or "").strip()
+    title = clean_title_for_tts(issue.get("translated_title") or issue.get("title") or "")
+    base = item_id or created_at or title or "tts"
+    return re.sub(r"[^a-zA-Z0-9_-]+", "_", base)[:120].strip("_") or "tts"
+
+
+def load_settings() -> dict:
+    if not SETTINGS_PATH.exists():
+        return {
+            "speed": DEFAULT_MELO_SPEED,
+            "leading_silence_ms": DEFAULT_LEADING_SILENCE_MS,
+        }
+    try:
+        data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        data = {}
+    return {
+        "speed": float(data.get("speed") or DEFAULT_MELO_SPEED),
+        "leading_silence_ms": int(data.get("leading_silence_ms") or DEFAULT_LEADING_SILENCE_MS),
+    }
+
+
+def save_settings(settings: dict) -> None:
+    SETTINGS_PATH.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 class DashboardTTSViewer:
     def __init__(self) -> None:
         self.base_url = f"http://{APP_HOST}:{DEFAULT_PORT}"
@@ -70,6 +100,7 @@ class DashboardTTSViewer:
         self.session.trust_env = False
         self.worker_process: subprocess.Popen[str] | None = None
         self.worker_ready_event = threading.Event()
+        self.settings = load_settings()
         CACHE_DIR.mkdir(exist_ok=True)
         WEBVIEW_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -107,6 +138,7 @@ class DashboardTTSViewer:
             env.pop(key, None)
         env["NO_PROXY"] = "*"
         env["no_proxy"] = "*"
+        env["PYTHONIOENCODING"] = "utf-8"
 
         command = [
             "conda",
@@ -126,6 +158,8 @@ class DashboardTTSViewer:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
             env=env,
         )
@@ -200,11 +234,9 @@ class DashboardTTSViewer:
                 break
 
             try:
-                title = clean_title_for_tts(issue.get("translated_title") or issue.get("title") or "")
-                if not title:
+                if not clean_title_for_tts(issue.get("translated_title") or issue.get("title") or ""):
                     continue
-                self.play_title(title)
-                self.set_status(f"재생 완료: {title}")
+                self.play_issue(issue)
             except Exception as error:
                 print(f"[APP] tts error: {error}")
                 self.set_status(f"TTS 오류: {error}")
@@ -223,13 +255,18 @@ class DashboardTTSViewer:
         if title:
             self.set_status(f"새 카드 감지: {title}")
 
-    def get_cache_path(self, title: str) -> Path:
-        safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", title.strip())[:80].strip("_") or "tts"
+    def get_cache_path(self, cache_key: str) -> Path:
+        safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", cache_key.strip())[:120].strip("_") or "tts"
         return CACHE_DIR / f"{safe_name}.wav"
 
-    def play_title(self, title: str) -> None:
-        self.speak_with_melotts_windows(title)
+    def play_issue(self, issue: dict) -> None:
+        title = clean_title_for_tts(issue.get("translated_title") or issue.get("title") or "")
+        if not title:
+            return
+        cache_key = f"melotts_windows_{build_issue_cache_key(issue)}"
+        self.speak_with_melotts_windows(title, cache_key)
         print(f"[APP] melotts-windows played: {title}")
+        self.set_status(f"재생 완료: {title}")
 
     def fetch_issues_once(self) -> list[dict]:
         response = self.session.get(self.api_url, timeout=10)
@@ -278,8 +315,25 @@ class DashboardTTSViewer:
         print(f"[APP] {text}")
         self.last_status = text
 
-    def speak_with_melotts_windows(self, title: str) -> None:
-        cache_path = self.get_cache_path(f"melotts_windows_{title}")
+    def settings_summary(self) -> str:
+        return f"속도 {self.settings['speed']:.2f}, 시작 여유 {self.settings['leading_silence_ms']}ms"
+
+    def update_speed(self, speed: float, label: str) -> None:
+        self.settings["speed"] = speed
+        save_settings(self.settings)
+        self.set_status(f"읽기 속도 변경: {label} ({self.settings_summary()})")
+
+    def update_leading_silence(self, milliseconds: int, label: str) -> None:
+        self.settings["leading_silence_ms"] = milliseconds
+        save_settings(self.settings)
+        self.set_status(f"시작 여유 변경: {label} ({self.settings_summary()})")
+
+    def show_current_settings(self) -> None:
+        self.set_status(f"현재 TTS 설정: {self.settings_summary()}")
+
+    def speak_with_melotts_windows(self, title: str, cache_key: str) -> None:
+        settings_key = f"{cache_key}_s{str(self.settings['speed']).replace('.', '_')}_p{self.settings['leading_silence_ms']}"
+        cache_path = self.get_cache_path(settings_key)
         if not cache_path.exists():
             self.ensure_worker()
             if not self.worker_process or not self.worker_process.stdin:
@@ -288,7 +342,8 @@ class DashboardTTSViewer:
                 "cmd": "synthesize",
                 "text": title,
                 "output_path": str(cache_path),
-                "speed": MELO_SPEED,
+                "speed": self.settings["speed"],
+                "leading_silence_ms": self.settings["leading_silence_ms"],
             }
             print(f"[APP] worker synth request: {title}")
             self.worker_process.stdin.write(json.dumps(command, ensure_ascii=False) + "\n")
@@ -341,7 +396,29 @@ class DashboardTTSViewer:
                     MenuAction("상위 3개 카드 읽기", self.read_top_three_cards),
                     MenuAction("첫 카드 다시 읽기", self.read_first_visible_card_again),
                 ],
-            )
+            ),
+            Menu(
+                "설정",
+                [
+                    Menu(
+                        "읽기 속도",
+                        [
+                            MenuAction("느리게 (0.90)", lambda: self.update_speed(0.90, "느리게")),
+                            MenuAction("보통 (1.00)", lambda: self.update_speed(1.00, "보통")),
+                            MenuAction("빠르게 (1.10)", lambda: self.update_speed(1.10, "빠르게")),
+                        ],
+                    ),
+                    Menu(
+                        "시작 여유",
+                        [
+                            MenuAction("짧게 (300ms)", lambda: self.update_leading_silence(300, "짧게")),
+                            MenuAction("보통 (420ms)", lambda: self.update_leading_silence(420, "보통")),
+                            MenuAction("길게 (600ms)", lambda: self.update_leading_silence(600, "길게")),
+                        ],
+                    ),
+                    MenuAction("현재 설정 보기", self.show_current_settings),
+                ],
+            ),
         ]
         webview.start(storage_path=str(WEBVIEW_STORAGE_DIR), private_mode=False, menu=menu)
 

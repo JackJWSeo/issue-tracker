@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import wave
 from pathlib import Path
 
 
@@ -28,7 +29,26 @@ def emit(prefix: str, payload: dict | None = None) -> None:
     print(f"{prefix}{json.dumps(payload, ensure_ascii=False)}", flush=True)
 
 
+def prepend_silence_to_wav(path: Path, milliseconds: int = 420) -> None:
+    with wave.open(str(path), "rb") as reader:
+        params = reader.getparams()
+        frames = reader.readframes(reader.getnframes())
+
+    frame_width = params.sampwidth * params.nchannels
+    silence_frame_count = int(params.framerate * (milliseconds / 1000.0))
+    silence = b"\x00" * frame_width * silence_frame_count
+
+    with wave.open(str(path), "wb") as writer:
+        writer.setparams(params)
+        writer.writeframes(silence + frames)
+
+
 def main() -> int:
+    if hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
     model = TTS(language="KR", device="cpu")
     speaker_ids = model.hps.data.spk2id
     speaker_id = speaker_ids["KR"]
@@ -57,6 +77,7 @@ def main() -> int:
         text = str(command.get("text") or "").strip()
         output_path = str(command.get("output_path") or "").strip()
         speed = float(command.get("speed") or 1.0)
+        leading_silence_ms = int(command.get("leading_silence_ms") or 420)
 
         if not text or not output_path:
             emit("__RESULT__", {"ok": False, "error": "text or output_path missing"})
@@ -66,6 +87,7 @@ def main() -> int:
             target = Path(output_path)
             target.parent.mkdir(parents=True, exist_ok=True)
             model.tts_to_file(text, speaker_id, str(target), speed=speed)
+            prepend_silence_to_wav(target, milliseconds=leading_silence_ms)
             emit("__RESULT__", {"ok": True, "output_path": str(target)})
         except Exception as error:
             emit("__RESULT__", {"ok": False, "error": str(error)})

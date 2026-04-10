@@ -11,8 +11,10 @@
       --panel-strong: #ffffff;
       --text: #16202a;
       --muted: #5e6b78;
+      --muted-strong: #3f4f61;
       --accent: #0b6bcb;
       --accent-soft: #d9ebff;
+      --accent-deep: #084f98;
       --ring: rgba(11, 107, 203, 0.18);
       --danger: #d33f49;
       --shadow: 0 18px 60px rgba(18, 39, 61, 0.12);
@@ -32,15 +34,6 @@
         radial-gradient(circle at top right, rgba(211, 63, 73, 0.10), transparent 22%),
         linear-gradient(180deg, #f7fafe 0%, var(--bg) 100%);
       min-height: 100vh;
-    }
-
-    body.flash {
-      animation: pulse-bg 0.9s ease-in-out 4;
-    }
-
-    @keyframes pulse-bg {
-      0%, 100% { background-color: transparent; }
-      50% { background-color: rgba(211, 63, 73, 0.12); }
     }
 
     .page {
@@ -201,33 +194,55 @@
       position: relative;
       display: flex;
       flex-direction: column;
-      gap: 12px;
-      background: rgba(255, 255, 255, 0.92);
+      gap: 14px;
+      background: rgba(255, 255, 255, 0.98);
       border: 1px solid var(--border);
-      border-radius: 22px;
-      padding: 20px 22px;
-      box-shadow: 0 18px 38px rgba(18, 39, 61, 0.08);
+      border-radius: 26px;
+      padding: 24px 24px 22px 62px;
+      box-shadow:
+        0 18px 40px rgba(18, 39, 61, 0.14),
+        0 6px 18px rgba(18, 39, 61, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.85);
       overflow: hidden;
-      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
-      min-height: 220px;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+      min-height: 236px;
+    }
+
+    .issue-card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at top right, rgba(11, 107, 203, 0.08), transparent 34%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.28), transparent 38%);
+      pointer-events: none;
     }
 
     .issue-card::before {
       content: "";
       position: absolute;
-      inset: 0 auto 0 0;
-      width: 6px;
-      background: linear-gradient(180deg, var(--accent), #67a7e8);
+      top: -1px;
+      bottom: -1px;
+      left: -1px;
+      width: 24px;
+      border-radius: 26px 0 0 26px;
+      background: linear-gradient(180deg, #9bc9f8, #b9dcff);
     }
 
     .issue-card.is-new {
       border-color: rgba(211, 63, 73, 0.35);
-      box-shadow: 0 18px 42px rgba(211, 63, 73, 0.16);
+      box-shadow:
+        0 22px 46px rgba(211, 63, 73, 0.16),
+        0 8px 20px rgba(211, 63, 73, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.85);
     }
 
     .issue-card:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 22px 48px rgba(18, 39, 61, 0.12);
+      transform: translateY(-4px);
+      box-shadow:
+        0 24px 54px rgba(18, 39, 61, 0.18),
+        0 10px 22px rgba(18, 39, 61, 0.10),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
     }
 
     .issue-meta {
@@ -238,29 +253,57 @@
       align-items: center;
       color: var(--muted);
       font-size: 13px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .issue-saved-at {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.4;
+      text-align: right;
+      white-space: nowrap;
+      margin-top: -4px;
     }
 
     .source-pill {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 6px 10px;
+      padding: 8px 12px;
       border-radius: 999px;
-      background: var(--accent-soft);
-      color: var(--accent);
-      font-weight: 600;
+      background: linear-gradient(180deg, #e1efff, #d5e8ff);
+      color: var(--accent-deep);
+      font-weight: 700;
+      letter-spacing: -0.01em;
       max-width: 100%;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      text-decoration: none;
+      border: 1px solid rgba(11, 107, 203, 0.08);
+      transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, color 0.18s ease;
+      margin-left: -12px;
+      margin-top: -4px;
+    }
+
+    .source-pill:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 24px rgba(18, 39, 61, 0.08);
+      background: linear-gradient(180deg, #d1e7ff, #c2deff);
+      color: #063d75;
     }
 
     .issue-title {
       margin: 0;
-      font-size: 22px;
-      line-height: 1.5;
-      letter-spacing: -0.02em;
+      position: relative;
+      z-index: 1;
+      font-size: 24px;
+      line-height: 1.42;
+      letter-spacing: -0.035em;
       word-break: keep-all;
+      text-wrap: balance;
     }
 
     .issue-desc {
@@ -269,63 +312,38 @@
       font-size: 14px;
       line-height: 1.65;
       word-break: keep-all;
+      position: relative;
+      z-index: 1;
     }
 
-    .issue-link {
-      margin-top: auto;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      padding: 12px 14px;
-      border-radius: 14px;
-      background: var(--text);
-      color: #ffffff;
-      text-decoration: none;
-      font-size: 14px;
-      font-weight: 600;
-      transition: background 0.18s ease;
-    }
-
-    .issue-link:hover {
-      background: #243647;
-    }
-
-    .issue-actions {
-      margin-top: auto;
-      display: flex;
-      flex-wrap: wrap;
+    .issue-detail {
+      display: grid;
       gap: 10px;
+      margin-top: auto;
+      padding-top: 12px;
+      border-top: 1px solid rgba(18, 39, 61, 0.08);
+      position: relative;
+      z-index: 1;
     }
 
-    .tts-button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      padding: 12px 14px;
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      background: #fff;
-      color: var(--text);
-      text-decoration: none;
-      font: inherit;
-      font-size: 14px;
+    .issue-detail-row {
+      display: grid;
+      gap: 4px;
+    }
+
+    .issue-detail-label {
+      color: var(--muted);
+      font-size: 12px;
       font-weight: 700;
-      cursor: pointer;
-      transition: transform 0.18s ease, box-shadow 0.18s ease;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
     }
 
-    .tts-button:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 10px 24px rgba(18, 39, 61, 0.08);
-    }
-
-    .tts-button:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-      transform: none;
-      box-shadow: none;
+    .issue-detail-value {
+      color: var(--muted-strong);
+      font-size: 14px;
+      line-height: 1.6;
+      word-break: keep-all;
     }
 
     .empty {
@@ -366,6 +384,15 @@
       .issues {
         grid-template-columns: 1fr;
       }
+
+      .issue-card {
+        min-height: auto;
+        padding: 22px 20px 20px 50px;
+      }
+
+      .issue-title {
+        font-size: 21px;
+      }
     }
   </style>
 </head>
@@ -396,15 +423,6 @@
           <div class="control-card">
             <strong>알림음</strong>
             <label><input type="checkbox" id="soundToggle" checked> 새 이슈가 오면 소리 재생</label>
-          </div>
-          <div class="control-card">
-            <strong>화면 강조</strong>
-            <label><input type="checkbox" id="flashToggle" checked> 새 이슈가 오면 화면 깜박임</label>
-          </div>
-          <div class="control-card">
-            <strong>한국어 TTS</strong>
-            <label><input type="checkbox" id="ttsToggle" checked> 새 이슈가 오면 한글 번역 내용 읽기</label>
-            <div style="margin-top: 8px; color: var(--muted); font-size: 13px;" id="ttsStatus">브라우저 음성 합성 사용 가능 여부를 확인 중입니다.</div>
           </div>
           <div class="control-card">
             <strong>자동 새로고침 주기</strong>
@@ -442,9 +460,6 @@
     const latestTimeEl = document.getElementById("latestTime");
     const refreshTimeEl = document.getElementById("refreshTime");
     const soundToggleEl = document.getElementById("soundToggle");
-    const flashToggleEl = document.getElementById("flashToggle");
-    const ttsToggleEl = document.getElementById("ttsToggle");
-    const ttsStatusEl = document.getElementById("ttsStatus");
     const refreshSecondsInputEl = document.getElementById("refreshSecondsInput");
     const filterGoogleNewsEl = document.getElementById("filterGoogleNews");
     const filterTruthSocialEl = document.getElementById("filterTruthSocial");
@@ -456,14 +471,9 @@
 
     let previousIds = new Set();
     let hasLoadedOnce = false;
-    let titleFlashTimer = null;
     let refreshTimer = null;
     let lastRenderedSignature = "";
     let latestIssues = [];
-    let ttsQueue = [];
-    let isSpeaking = false;
-    let preferredVoice = null;
-    const supportsTts = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
 
     function formatDate(value) {
       if (!value) return "-";
@@ -512,19 +522,6 @@
       return issue.translated_title || issue.title || "(제목 없음)";
     }
 
-    function stripTitleSourceSuffix(value) {
-      const text = String(value || "").trim();
-      if (!text) return "";
-      const separators = [" - ", " – ", " — ", " | "];
-      for (const separator of separators) {
-        const index = text.lastIndexOf(separator);
-        if (index > 15) {
-          return text.slice(0, index).trim();
-        }
-      }
-      return text;
-    }
-
     function getDisplayBody(issue) {
       return issue.translated_body || issue.body || "";
     }
@@ -541,122 +538,6 @@
         .replaceAll(/\[[^\]]+\]/g, " ")
         .replaceAll(/\s+/g, " ")
         .trim();
-    }
-
-    function shortenForTts(value, limit = 170) {
-      const text = normalizeTtsText(value);
-      if (!text) return "";
-      if (text.length <= limit) return text;
-      const shortened = text.slice(0, limit);
-      const lastBreak = Math.max(
-        shortened.lastIndexOf("."),
-        shortened.lastIndexOf("!"),
-        shortened.lastIndexOf("?"),
-        shortened.lastIndexOf(","),
-        shortened.lastIndexOf(" ")
-      );
-      return `${(lastBreak > 80 ? shortened.slice(0, lastBreak) : shortened).trim()}...`;
-    }
-
-    function buildTtsText(issue) {
-      const title = shortenForTts(stripTitleSourceSuffix(getDisplayTitle(issue)), 140);
-      return title ? `새 소식입니다. ${title}` : "";
-    }
-
-    function pickKoreanVoice() {
-      if (!supportsTts) return null;
-      const voices = window.speechSynthesis.getVoices();
-      preferredVoice =
-        voices.find((voice) => voice.lang && voice.lang.toLowerCase().startsWith("ko")) ||
-        voices.find((voice) => voice.name && /korean|한국/i.test(voice.name)) ||
-        null;
-      return preferredVoice;
-    }
-
-    function updateTtsStatus() {
-      if (!supportsTts) {
-        ttsToggleEl.checked = false;
-        ttsToggleEl.disabled = true;
-        ttsStatusEl.textContent = "이 브라우저는 TTS를 지원하지 않습니다.";
-        return;
-      }
-
-      pickKoreanVoice();
-      if (preferredVoice) {
-        ttsStatusEl.textContent = `사용 중인 음성: ${preferredVoice.name} (${preferredVoice.lang})`;
-        return;
-      }
-
-      ttsStatusEl.textContent = "한국어 전용 음성을 찾지 못해 기본 음성으로 읽습니다.";
-    }
-
-    function speakNextInQueue() {
-      if (!supportsTts || isSpeaking || !ttsQueue.length) {
-        return;
-      }
-
-      const issue = ttsQueue.shift();
-      const ttsText = buildTtsText(issue);
-      if (!ttsText.trim()) {
-        speakNextInQueue();
-        return;
-      }
-      const utterance = new SpeechSynthesisUtterance(ttsText);
-      const voice = preferredVoice || pickKoreanVoice();
-      utterance.lang = (voice && voice.lang) || "ko-KR";
-      utterance.voice = voice || null;
-      utterance.rate = voice && voice.lang && voice.lang.toLowerCase().startsWith("ko") ? 0.92 : 0.88;
-      utterance.pitch = 1.02;
-      utterance.volume = 1;
-      isSpeaking = true;
-      utterance.onend = () => {
-        isSpeaking = false;
-        speakNextInQueue();
-      };
-      utterance.onerror = () => {
-        isSpeaking = false;
-        speakNextInQueue();
-      };
-      window.speechSynthesis.speak(utterance);
-    }
-
-    function enqueueTtsIssues(issues) {
-      if (!supportsTts || !ttsToggleEl.checked || !issues.length) {
-        return;
-      }
-      ttsQueue.push(...issues);
-      speakNextInQueue();
-    }
-
-    function speakIssueNow(issue) {
-      if (!supportsTts) return;
-      ttsQueue = [issue];
-      window.speechSynthesis.cancel();
-      isSpeaking = false;
-      speakNextInQueue();
-    }
-
-    function triggerFlash(count) {
-      document.body.classList.remove("flash");
-      void document.body.offsetWidth;
-      document.body.classList.add("flash");
-
-      if (titleFlashTimer) {
-        clearInterval(titleFlashTimer);
-      }
-
-      let tick = 0;
-      const originalTitle = "Trump Monitor Dashboard";
-      titleFlashTimer = setInterval(() => {
-        document.title = tick % 2 === 0 ? `(${count}) 새 이슈 도착` : originalTitle;
-        tick += 1;
-        if (tick > 7) {
-          clearInterval(titleFlashTimer);
-          titleFlashTimer = null;
-          document.title = originalTitle;
-          document.body.classList.remove("flash");
-        }
-      }, 500);
     }
 
     function buildSourceLabel(source) {
@@ -694,17 +575,6 @@
       return true;
     }
 
-    function buildRelativeText(value) {
-      if (!value) return "등록 시각 없음";
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return value;
-      const diffMinutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
-      if (diffMinutes < 1) return "방금 등록";
-      if (diffMinutes < 60) return `${diffMinutes}분 전 등록`;
-      const diffHours = Math.floor(diffMinutes / 60);
-      return `${diffHours}시간 전 등록`;
-    }
-
     function renderIssues(issues, newIds) {
       const visibleIssues = issues.filter(isVisibleByFilter);
 
@@ -720,26 +590,22 @@
         const isNew = newIds.has(issue.item_id);
         const safeTitle = escapeHtml(issue.title);
         const safeDisplayTitle = escapeHtml(getDisplayTitle(issue));
-        const safeBodyText = hasReadableBody(issue) ? getDisplayBody(issue) : "";
-        const safeBody = escapeHtml(safeBodyText);
         const safeSource = escapeHtml(buildSourceLabel(issue.source));
         const safeUrl = escapeHtml(issue.url);
-        const safeRelative = escapeHtml(buildRelativeText(issue.created_at));
         const safeCreatedAt = escapeHtml(formatDate(issue.created_at));
         const safeItemId = escapeHtml(issue.item_id);
         return `
           <article class="issue-card ${isNew ? "is-new" : ""}" data-item-id="${safeItemId}">
             <div class="issue-meta">
-              <span class="source-pill">${safeSource}</span>
-              <span>${safeRelative}</span>
+              <a class="source-pill" href="${safeUrl}" target="_blank" rel="noreferrer">출처 · ${safeSource}</a>
+              <div class="issue-saved-at">${safeCreatedAt}</div>
             </div>
             <h3 class="issue-title">${safeDisplayTitle}</h3>
-            ${safeBodyText ? `<p class="issue-desc">${safeBody}</p>` : ""}
-            <p class="issue-desc">원문 제목: ${safeTitle}</p>
-            <p class="issue-desc">저장 시각: ${safeCreatedAt}</p>
-            <div class="issue-actions">
-              <button class="tts-button" type="button" data-action="speak" data-item-id="${safeItemId}" ${supportsTts ? "" : "disabled"}>한글 TTS 재생</button>
-              <a class="issue-link" href="${safeUrl}" target="_blank" rel="noreferrer">기사 바로 보기</a>
+            <div class="issue-detail">
+              <div class="issue-detail-row">
+                <div class="issue-detail-label">Original Title</div>
+                <p class="issue-detail-value">${safeTitle}</p>
+              </div>
             </div>
           </article>
         `;
@@ -779,14 +645,9 @@
         refreshTimeEl.textContent = formatDate(data.generated_at);
         lastRenderedSignature = renderSignature;
         if (newIds.size > 0) {
-          const visibleNewIssues = data.issues.filter((issue) => newIds.has(issue.item_id) && isVisibleByFilter(issue));
           if (soundToggleEl.checked) {
             playAlertSound();
           }
-          if (flashToggleEl.checked) {
-            triggerFlash(newIds.size);
-          }
-          enqueueTtsIssues(visibleNewIssues.reverse());
         }
       } catch (error) {
         console.error(error);
@@ -832,17 +693,6 @@
       });
     });
 
-    issuesEl.addEventListener("click", (event) => {
-      const button = event.target.closest('[data-action="speak"]');
-      if (!button) {
-        return;
-      }
-      const issue = latestIssues.find((item) => item.item_id === button.dataset.itemId);
-      if (issue) {
-        speakIssueNow(issue);
-      }
-    });
-
     sidebarToggleEl.addEventListener("click", () => {
       if (!window.matchMedia("(max-width: 900px)").matches) {
         return;
@@ -852,13 +702,6 @@
     });
 
     window.addEventListener("resize", syncSidebarForViewport);
-    if (supportsTts) {
-      window.speechSynthesis.onvoiceschanged = () => {
-        updateTtsStatus();
-      };
-    }
-
-    updateTtsStatus();
     refreshIssues();
     restartAutoRefresh();
     syncSidebarForViewport();
