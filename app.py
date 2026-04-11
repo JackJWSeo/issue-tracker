@@ -7,7 +7,6 @@ from config import (
     DB_PATH,
     OPENAI_API_KEY,
     POLL_SECONDS,
-    TARGETS,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID,
     X_BEARER_TOKEN,
@@ -21,6 +20,7 @@ from sources.truth_social import fetch_truthsocial_posts
 from sources.x_monitor import fetch_x_posts
 from sources.youtube_live import fetch_youtube_live
 from sources.youtube_stt import enrich_item_with_stt_summary
+from query_settings import load_query_targets
 from ui_settings import UISettings, load_ui_settings
 from utils import (
     classify_trump_content,
@@ -58,8 +58,9 @@ def apply_time_filter(
 
 def collect_items(db: StateDB, settings: UISettings, log: LogFn = default_log) -> list[Item]:
     results: list[Item] = []
+    targets = load_query_targets()
 
-    for username in TARGETS["x_accounts"]:
+    for username in targets["x_accounts"]:
         log(f"[X] 수집 시작: {username}")
         try:
             rows = apply_time_filter(fetch_x_posts(username, X_BEARER_TOKEN, db), f"X:{username}", settings, log=log)
@@ -68,7 +69,7 @@ def collect_items(db: StateDB, settings: UISettings, log: LogFn = default_log) -
         except Exception as e:
             log(f"[X] {username} 실패: {e}")
 
-    for username in TARGETS["truthsocial_accounts"]:
+    for username in targets["truthsocial_accounts"]:
         log(f"[TRUTH] 수집 시작: {username}")
         try:
             rows = apply_time_filter(fetch_truthsocial_posts(username, db), f"TRUTH:{username}", settings, log=log)
@@ -77,7 +78,7 @@ def collect_items(db: StateDB, settings: UISettings, log: LogFn = default_log) -
         except Exception as e:
             log(f"[TRUTH] {username} 실패: {e}")
 
-    for query in TARGETS["youtube_queries"]:
+    for query in targets["youtube_queries"]:
         log(f"[YT] 수집 시작: {query}")
         try:
             rows = apply_time_filter(fetch_youtube_live(query, YOUTUBE_API_KEY), f"YT:{query}", settings, log=log)
@@ -86,7 +87,7 @@ def collect_items(db: StateDB, settings: UISettings, log: LogFn = default_log) -
         except Exception as e:
             log(f"[YT] {query} 실패: {e}")
 
-    for query in TARGETS["news_queries"]:
+    for query in targets["news_queries"]:
         log(f"[NEWS] 수집 시작: {query}")
         try:
             rows = apply_time_filter(fetch_google_news_rss(query), f"NEWS:{query}", settings, log=log)

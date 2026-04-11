@@ -21,6 +21,7 @@ DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 15242
 DEFAULT_WINDOW_MINUTES = 60
 DEFAULT_LIMIT = 100
+DEFAULT_FALLBACK_MIN_COUNT = 10
 TRANSLATION_TIMEOUT_SECONDS = 10
 _translation_cache: dict[str, str] = {}
 
@@ -128,11 +129,18 @@ def translate_to_korean(text: str) -> str:
     return translated
 
 
-def hydrate_translations(conn: sqlite3.Connection, row: sqlite3.Row) -> tuple[str, str]:
+def hydrate_translations(
+    conn: sqlite3.Connection,
+    row: sqlite3.Row,
+    allow_live_translate: bool = True,
+) -> tuple[str, str]:
     translated_title = clean_text(row["translated_title"] or "")
     translated_body = clean_text(row["translated_body"] or "")
     original_title = clean_text(row["title"] or "")
     original_body = clean_text(row["body"] or "")
+
+    if not allow_live_translate:
+        return translated_title, translated_body
 
     changed = False
     if not translated_title and original_title:
@@ -144,31 +152,93 @@ def hydrate_translations(conn: sqlite3.Connection, row: sqlite3.Row) -> tuple[st
         changed = changed or translated_body != clean_text(row["translated_body"] or "")
 
     if changed:
-        conn.execute(
-            """
-            UPDATE seen_items
-            SET translated_title = ?, translated_body = ?
-            WHERE item_id = ?
-            """,
-            (translated_title, translated_body, row["item_id"]),
-        )
-        conn.commit()
+        try:
+            conn.execute(
+                """
+                UPDATE seen_items
+                SET translated_title = ?, translated_body = ?
+                WHERE item_id = ?
+                """,
+                (translated_title, translated_body, row["item_id"]),
+            )
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
 
     return translated_title, translated_body
 
 
-def fetch_recent_issues(window_minutes: int = DEFAULT_WINDOW_MINUTES, limit: int = DEFAULT_LIMIT) -> list[dict]:
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=max(1, window_minutes))
+def _collect_issue_rows(
+    conn: sqlite3.Connection,
+    rows: list[sqlite3.Row],
+    allow_live_translate: bool = True,
+) -> list[dict]:
     settings = load_ui_settings()
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
     issues: list[dict] = []
     dedupe_candidates: list[dict] = []
     seen_title_keys: set[str] = set()
+    for row in rows:
+        created_at = row["created_at"]
+        created_dt = parse_iso_datetime(created_at)
+        translated_title, translated_body = hydrate_translations(
+            conn,
+            row,
+            allow_live_translate=allow_live_translate,
+        )
+        title = clean_text(row["title"] or "") or "(제목 없음)"
+        body = clean_text(row["body"] or "")
+        matched_exclude_keyword = match_exclude_keyword(
+            settings.exclude_keywords,
+            title,
+            body,
+            translated_title,
+            translated_body,
+            row["source"] or "",
+        )
+        if matched_exclude_keyword:
+            continue
+        dedupe_candidates.append(
+            {
+                "item_id": row["item_id"],
+                "source": row["source"] or "",
+                "title": title,
+                "body": body,
+                "translated_title": translated_title,
+                "translated_body": translated_body,
+                "url": row["url"] or "",
+                "created_at": created_at or "",
+                "created_at_unix": int(created_dt.timestamp()) if created_dt else 0,
+            }
+        )
+
+    for issue in sorted(dedupe_candidates, key=lambda item: (item["created_at_unix"], item["item_id"])):
+        translated_key = normalize_title_for_dedupe(issue.get("translated_title") or "")
+        original_key = normalize_title_for_dedupe(issue.get("title") or "")
+        dedupe_keys = {key for key in (translated_key, original_key) if key}
+        if dedupe_keys and any(key in seen_title_keys for key in dedupe_keys):
+            continue
+        seen_title_keys.update(dedupe_keys)
+        issues.append(issue)
+
+    issues.sort(key=lambda item: (item["created_at_unix"], item["item_id"]), reverse=True)
+    return issues
+
+
+def fetch_recent_issues(
+    window_minutes: int = DEFAULT_WINDOW_MINUTES,
+    limit: int = DEFAULT_LIMIT,
+    fallback_min_count: int = DEFAULT_FALLBACK_MIN_COUNT,
+) -> tuple[list[dict], str]:
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=max(1, window_minutes))
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     try:
         ensure_seen_items_schema(conn)
-        candidate_limit = min(max(1, limit) * 4, 500)
-        rows = conn.execute(
+        requested_limit = max(1, limit)
+        fallback_target = max(1, fallback_min_count)
+        candidate_limit = min(max(requested_limit, fallback_target) * 6, 500)
+
+        recent_rows = conn.execute(
             """
             SELECT item_id, source, title, body, translated_title, translated_body, url, created_at
             FROM seen_items
@@ -178,60 +248,35 @@ def fetch_recent_issues(window_minutes: int = DEFAULT_WINDOW_MINUTES, limit: int
             """,
             (cutoff.isoformat(), candidate_limit),
         ).fetchall()
+        recent_issues = _collect_issue_rows(conn, recent_rows, allow_live_translate=False)
 
-        for row in rows:
-            created_at = row["created_at"]
-            created_dt = parse_iso_datetime(created_at)
-            translated_title, translated_body = hydrate_translations(conn, row)
-            title = clean_text(row["title"] or "") or "(제목 없음)"
-            body = clean_text(row["body"] or "")
-            matched_exclude_keyword = match_exclude_keyword(
-                settings.exclude_keywords,
-                title,
-                body,
-                translated_title,
-                translated_body,
-                row["source"] or "",
-            )
-            if matched_exclude_keyword:
-                continue
-            dedupe_candidates.append(
-                {
-                    "item_id": row["item_id"],
-                    "source": row["source"] or "",
-                    "title": title,
-                    "body": body,
-                    "translated_title": translated_title,
-                    "translated_body": translated_body,
-                    "url": row["url"] or "",
-                    "created_at": created_at or "",
-                    "created_at_unix": int(created_dt.timestamp()) if created_dt else 0,
-                }
-            )
+        if len(recent_issues) >= fallback_target:
+            return recent_issues[:requested_limit], "recent_window"
 
-        for issue in sorted(dedupe_candidates, key=lambda item: (item["created_at_unix"], item["item_id"])):
-            translated_key = normalize_title_for_dedupe(issue.get("translated_title") or "")
-            original_key = normalize_title_for_dedupe(issue.get("title") or "")
-            dedupe_keys = {key for key in (translated_key, original_key) if key}
-            if dedupe_keys and any(key in seen_title_keys for key in dedupe_keys):
-                continue
-            seen_title_keys.update(dedupe_keys)
-            issues.append(issue)
-
-        issues.sort(key=lambda item: (item["created_at_unix"], item["item_id"]), reverse=True)
-        issues = issues[: max(1, limit)]
+        latest_rows = conn.execute(
+            """
+            SELECT item_id, source, title, body, translated_title, translated_body, url, created_at
+            FROM seen_items
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (candidate_limit,),
+        ).fetchall()
+        latest_issues = _collect_issue_rows(conn, latest_rows, allow_live_translate=False)
+        return latest_issues[:fallback_target], "latest_fallback"
     finally:
         conn.close()
-    return issues
 
 
 def build_payload(window_minutes: int = DEFAULT_WINDOW_MINUTES, limit: int = DEFAULT_LIMIT) -> dict:
-    issues = fetch_recent_issues(window_minutes=window_minutes, limit=limit)
+    issues, selection_mode = fetch_recent_issues(window_minutes=window_minutes, limit=limit)
     newest_issue_id = issues[0]["item_id"] if issues else None
     newest_created_at = issues[0]["created_at"] if issues else None
     return {
         "window_minutes": window_minutes,
         "limit": limit,
+        "fallback_min_count": DEFAULT_FALLBACK_MIN_COUNT,
+        "selection_mode": selection_mode,
         "count": len(issues),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "newest_issue_id": newest_issue_id,

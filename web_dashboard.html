@@ -417,7 +417,7 @@
       </button>
       <section class="stats">
         <div class="stat">
-          <div class="label">최근 1시간 이슈 수</div>
+          <div class="label" id="issueCountLabel">표시 중 이슈 수</div>
           <div class="value" id="issueCount">0</div>
         </div>
       </section>
@@ -449,7 +449,7 @@
     <section class="content">
       <div class="section-title">
         <h2>실시간 이슈 카드</h2>
-        <p>최근 1시간 기준, 한 번에 최대 100건 표시</p>
+        <p id="issueSummary">최근 1시간 이슈 우선, 10개 미만이면 최신 10개 표시</p>
       </div>
 
       <section id="issues" class="issues"></section>
@@ -461,6 +461,8 @@
 
     const issuesEl = document.getElementById("issues");
     const issueCountEl = document.getElementById("issueCount");
+    const issueCountLabelEl = document.getElementById("issueCountLabel");
+    const issueSummaryEl = document.getElementById("issueSummary");
     const soundToggleEl = document.getElementById("soundToggle");
     const refreshSecondsInputEl = document.getElementById("refreshSecondsInput");
     const filterGoogleNewsEl = document.getElementById("filterGoogleNews");
@@ -475,7 +477,7 @@
     let hasLoadedOnce = false;
     let refreshTimer = null;
     let lastRenderedSignature = "";
-    let latestIssues = [];
+    let latestIssues = { issues: [], selection_mode: "recent_window", window_minutes: 60, fallback_min_count: 10 };
 
     function formatDate(value) {
       if (!value) return "-";
@@ -577,13 +579,23 @@
       return true;
     }
 
-    function renderIssues(issues, newIds) {
+    function updateIssueSummary(data, visibleCount) {
+      const isFallback = data.selection_mode === "latest_fallback";
+      issueCountLabelEl.textContent = isFallback ? "최신 기준 이슈 수" : "최근 1시간 이슈 수";
+      issueSummaryEl.textContent = isFallback
+        ? `최근 ${data.window_minutes}분 이슈가 ${data.fallback_min_count}개 미만이라 최신 ${data.fallback_min_count}개를 표시 중`
+        : `최근 ${data.window_minutes}분 이슈를 표시 중`;
+      issueCountEl.textContent = String(visibleCount);
+    }
+
+    function renderIssues(data, newIds) {
+      const issues = data.issues || [];
       const visibleIssues = issues.filter(isVisibleByFilter);
 
-      issueCountEl.textContent = String(visibleIssues.length);
+      updateIssueSummary(data, visibleIssues.length);
 
       if (!visibleIssues.length) {
-        issuesEl.innerHTML = '<div class="empty">선택한 조건에 맞는 최근 1시간 이슈가 없습니다.</div>';
+        issuesEl.innerHTML = '<div class="empty">선택한 조건에 맞는 이슈가 없습니다.</div>';
         return;
       }
 
@@ -621,7 +633,7 @@
         }
 
         const data = await response.json();
-        latestIssues = data.issues;
+        latestIssues = data;
         const ids = new Set(data.issues.map((issue) => issue.item_id));
         const newIds = new Set();
         const renderSignature = JSON.stringify(data.issues.map((issue) => [issue.item_id, issue.created_at]));
@@ -642,7 +654,7 @@
           return;
         }
 
-        renderIssues(data.issues, newIds);
+        renderIssues(data, newIds);
         lastRenderedSignature = renderSignature;
         if (newIds.size > 0) {
           if (soundToggleEl.checked) {

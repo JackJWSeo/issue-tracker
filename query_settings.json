@@ -1,0 +1,40 @@
+{
+  "x_accounts": [
+    "realDonaldTrump",
+    "WhiteHouse",
+    "RapidResponse47"
+  ],
+  "truthsocial_accounts": [
+    "realDonaldTrump"
+  ],
+  "youtube_queries": [
+    "Donald Trump live",
+    "Trump rally live",
+    "White House live",
+    "Trump speech live",
+    "Trump Iran talks live",
+    "US Iran talks live",
+    "Iran nuclear talks live",
+    "Iran ceasefire talks live",
+    "Iran peace talks live",
+    "Iran sanctions relief live"
+  ],
+  "news_queries": [
+    "Donald Trump",
+    "Trump speech",
+    "Trump rally",
+    "Trump interview",
+    "White House Trump",
+    "Trump Iran talks",
+    "Trump Iran negotiation",
+    "US Iran talks",
+    "Iran nuclear talks",
+    "Iran negotiation",
+    "Iran ceasefire talks",
+    "Iran peace talks",
+    "Iran end war talks",
+    "Iran sanctions relief",
+    "Iran sanctions lifted",
+    "Iran regulation relief"
+  ]
+}

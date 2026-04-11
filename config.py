@@ -55,7 +55,7 @@ OPENAI_SUMMARY_MODEL = get_secret("OPENAI_SUMMARY_MODEL", "gpt-4.1-mini")
 USE_AI_IRAN_WAR_FILTER = get_secret("USE_AI_IRAN_WAR_FILTER", "1").lower() in {"1", "true", "yes", "on"}
 LOCAL_TIMEZONE = get_secret("LOCAL_TIMEZONE", "Asia/Seoul")
 
-TARGETS = {
+DEFAULT_TARGETS = {
     "x_accounts": [
         "realDonaldTrump",
         "WhiteHouse",
@@ -69,6 +69,12 @@ TARGETS = {
         "Trump rally live",
         "White House live",
         "Trump speech live",
+        "Trump Iran talks live",
+        "US Iran talks live",
+        "Iran nuclear talks live",
+        "Iran ceasefire talks live",
+        "Iran peace talks live",
+        "Iran sanctions relief live",
     ],
     "news_queries": [
         "Donald Trump",
@@ -76,6 +82,17 @@ TARGETS = {
         "Trump rally",
         "Trump interview",
         "White House Trump",
+        "Trump Iran talks",
+        "Trump Iran negotiation",
+        "US Iran talks",
+        "Iran nuclear talks",
+        "Iran negotiation",
+        "Iran ceasefire talks",
+        "Iran peace talks",
+        "Iran end war talks",
+        "Iran sanctions relief",
+        "Iran sanctions lifted",
+        "Iran regulation relief",
     ],
 }
 
