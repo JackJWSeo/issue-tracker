@@ -5,7 +5,7 @@ a = Analysis(
     ['desktop_tts_viewer.py'],
     pathex=[],
     binaries=[],
-    datas=[('web_dashboard.html', '.'), ('melotts_windows_worker.py', '.'), ('tts_blocked_chars.txt', '.')],
+    datas=[('web_dashboard.html', '.'), ('melotts_windows_worker.py', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

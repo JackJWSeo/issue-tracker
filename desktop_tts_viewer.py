@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import unicodedata
+import uuid
 import winsound
 from ctypes import wintypes, windll
 from pathlib import Path
@@ -29,6 +30,8 @@ WAV_CACHE_MAX_AGE_SECONDS = 60 * 60
 DEBUG_LOG_RETENTION_DAYS = 7
 WORKER_READY_TIMEOUT_SECONDS = 180
 WORKER_COMMAND_TIMEOUT_SECONDS = 180
+WORKER_RESULT_POLL_INTERVAL_SECONDS = 0.2
+WORKER_OUTPUT_WAIT_SECONDS = 8
 CACHE_DIR = APP_BASE_DIR / "tts_cache"
 WEBVIEW_STORAGE_DIR = Path.home() / "AppData" / "Local" / "IssueTrackerWebView"
 WORKER_SCRIPT_PATH = RESOURCE_DIR / "melotts_windows_worker.py"
@@ -696,31 +699,64 @@ class DashboardTTSViewer:
         self.prune_old_wav_cache()
         settings_key = f"{cache_key}_s{str(self.settings['speed']).replace('.', '_')}_p{self.settings['leading_silence_ms']}"
         cache_path = self.get_cache_path(settings_key)
+        playback_path = cache_path
         if not cache_path.exists():
             self.ensure_worker()
             if not self.worker_process or not self.worker_process.stdin:
                 raise RuntimeError("MeloTTS worker stdin을 사용할 수 없습니다.")
+            request_id = uuid.uuid4().hex
             command = {
                 "cmd": "synthesize",
                 "text": title,
                 "output_path": str(cache_path),
+                "request_id": request_id,
                 "speed": self.settings["speed"],
                 "leading_silence_ms": self.settings["leading_silence_ms"],
             }
             safe_print(f"[APP] worker synth request: {title}")
             self.worker_process.stdin.write(json.dumps(command, ensure_ascii=False) + "\n")
             self.worker_process.stdin.flush()
-            try:
-                result = self.worker_result_queue.get(timeout=WORKER_COMMAND_TIMEOUT_SECONDS)
-            except queue.Empty as error:
-                raise RuntimeError("MeloTTS worker 응답 시간이 초과되었습니다.") from error
+            result = None
+            deadline = time.time() + WORKER_COMMAND_TIMEOUT_SECONDS
+            while time.time() < deadline:
+                remaining = max(deadline - time.time(), WORKER_RESULT_POLL_INTERVAL_SECONDS)
+                try:
+                    candidate = self.worker_result_queue.get(timeout=min(WORKER_RESULT_POLL_INTERVAL_SECONDS, remaining))
+                except queue.Empty:
+                    continue
+                candidate_request_id = str(candidate.get("request_id") or "").strip()
+                candidate_output_path = str(candidate.get("output_path") or "").strip()
+                if candidate_request_id == request_id:
+                    result = candidate
+                    break
+                debug_log(
+                    "worker result skipped: "
+                    f"expected_request_id={request_id} got_request_id={candidate_request_id or '(none)'} "
+                    f"output={candidate_output_path or '(none)'}"
+                )
+            if result is None:
+                raise RuntimeError("MeloTTS worker 응답 시간이 초과되었습니다.")
             if not result.get("ok"):
                 try:
                     cache_path.unlink(missing_ok=True)
                 except Exception:
                     pass
                 raise RuntimeError(str(result.get("error") or "melotts-win 실행에 실패했습니다."))
-        play_wav_file(cache_path)
+            result_output_path = str(result.get("output_path") or "").strip()
+            playback_path = Path(result_output_path) if result_output_path else cache_path
+            file_deadline = time.time() + WORKER_OUTPUT_WAIT_SECONDS
+            while time.time() < file_deadline:
+                if playback_path.exists() and playback_path.stat().st_size > 0:
+                    break
+                time.sleep(WORKER_RESULT_POLL_INTERVAL_SECONDS)
+            if not playback_path.exists():
+                raise RuntimeError(f"합성 완료 응답 후 wav 파일이 없습니다: {playback_path}")
+        play_wav_file(playback_path)
+        if playback_path != cache_path:
+            try:
+                playback_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     def shutdown_worker(self) -> None:
         process = self.worker_process

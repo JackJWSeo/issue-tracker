@@ -3,6 +3,13 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $projectRoot
 
+$workPath = Join-Path $projectRoot "build\pyinstaller_work"
+$specPath = Join-Path $projectRoot "build\pyinstaller_spec"
+$dashboardHtml = Join-Path $projectRoot "web_dashboard.html"
+$workerScript = Join-Path $projectRoot "melotts_windows_worker.py"
+New-Item -ItemType Directory -Force -Path $workPath | Out-Null
+New-Item -ItemType Directory -Force -Path $specPath | Out-Null
+
 if (-not (Test-Path ".\.venv310\Scripts\python.exe")) {
     throw ".venv310\Scripts\python.exe 를 찾을 수 없습니다."
 }
@@ -16,8 +23,10 @@ $python = Resolve-Path ".\.venv310\Scripts\python.exe"
     --windowed `
     --onedir `
     --name tts_viewer `
-    --add-data "web_dashboard.html;." `
-    --add-data "melotts_windows_worker.py;." `
+    --workpath $workPath `
+    --specpath $specPath `
+    --add-data "${dashboardHtml};." `
+    --add-data "${workerScript};." `
     desktop_tts_viewer.py
 
 Write-Host ""

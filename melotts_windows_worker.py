@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import sys
 import wave
 from pathlib import Path
@@ -47,6 +48,13 @@ def prepend_silence_to_wav(path: Path, milliseconds: int = 420) -> None:
     with wave.open(str(path), "wb") as writer:
         writer.setparams(params)
         writer.writeframes(silence + frames)
+
+
+def cleanup_file(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 @contextlib.contextmanager
@@ -96,6 +104,7 @@ def main() -> int:
 
         text = str(command.get("text") or "").strip()
         output_path = str(command.get("output_path") or "").strip()
+        request_id = str(command.get("request_id") or "").strip()
         speed = float(command.get("speed") or 1.0)
         leading_silence_ms = int(command.get("leading_silence_ms") or 420)
 
@@ -106,16 +115,29 @@ def main() -> int:
         try:
             target = Path(output_path)
             target.parent.mkdir(parents=True, exist_ok=True)
+            temp_target = target.with_name(f"{target.stem}.{request_id or 'tmp'}.tmp.wav")
+            cleanup_file(temp_target)
             with suppress_noisy_output() as synth_logs:
-                model.tts_to_file(text, speaker_id, str(target), speed=speed)
-            prepend_silence_to_wav(target, milliseconds=leading_silence_ms)
+                model.tts_to_file(text, speaker_id, str(temp_target), speed=speed)
+            prepend_silence_to_wav(temp_target, milliseconds=leading_silence_ms)
+            final_output_path = temp_target
+            try:
+                if target.exists():
+                    cleanup_file(target)
+                shutil.move(str(temp_target), str(target))
+                final_output_path = target
+            except Exception:
+                final_output_path = temp_target
             synth_output = synth_logs.getvalue().strip()
             if synth_output:
                 for line in synth_output.splitlines():
                     log_message(line)
-            emit("__RESULT__", {"ok": True, "output_path": str(target)})
+            emit("__RESULT__", {"ok": True, "output_path": str(final_output_path), "request_id": request_id})
         except Exception as error:
-            emit("__RESULT__", {"ok": False, "error": str(error)})
+            cleanup_file(Path(output_path))
+            if output_path:
+                cleanup_file(Path(output_path).with_name(f"{Path(output_path).stem}.{request_id or 'tmp'}.tmp.wav"))
+            emit("__RESULT__", {"ok": False, "error": str(error), "output_path": output_path, "request_id": request_id})
 
     return 0
 

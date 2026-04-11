@@ -90,7 +90,11 @@ def collect_items(db: StateDB, settings: UISettings, log: LogFn = default_log) -
     for query in targets["news_queries"]:
         log(f"[NEWS] 수집 시작: {query}")
         try:
-            rows = apply_time_filter(fetch_google_news_rss(query), f"NEWS:{query}", settings, log=log)
+            rows = fetch_google_news_rss(
+                query,
+                recent_hours=settings.recent_hours if settings.use_recent_hours_filter else None,
+            )
+            rows = apply_time_filter(rows, f"NEWS:{query}", settings, log=log)
             results.extend(rows)
             log(f"[NEWS] 수집 완료: {query} items={len(rows)}")
         except Exception as e:
