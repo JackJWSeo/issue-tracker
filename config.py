@@ -3,6 +3,10 @@ import os
 import sys
 from pathlib import Path
 
+# NOTE:
+# 이 파일은 실행 환경/경로/비밀키처럼 "거의 안 바뀌는 런타임 설정"만 둔다.
+# 검색 쿼리, 우선순위 키워드, 이슈 분류 키워드, 주요 매체 목록은
+# query_settings.json + query_settings.py에서 관리한다.
 SOURCE_DIR = Path(__file__).resolve().parent
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", SOURCE_DIR))
 APP_BASE_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else SOURCE_DIR
@@ -54,123 +58,3 @@ REQUEST_TIMEOUT = int(get_secret("REQUEST_TIMEOUT", "20"))
 OPENAI_SUMMARY_MODEL = get_secret("OPENAI_SUMMARY_MODEL", "gpt-4.1-mini")
 USE_AI_IRAN_WAR_FILTER = get_secret("USE_AI_IRAN_WAR_FILTER", "1").lower() in {"1", "true", "yes", "on"}
 LOCAL_TIMEZONE = get_secret("LOCAL_TIMEZONE", "Asia/Seoul")
-
-DEFAULT_TARGETS = {
-    "x_accounts": [
-        "realDonaldTrump",
-        "WhiteHouse",
-        "RapidResponse47",
-    ],
-    "truthsocial_accounts": [
-        "realDonaldTrump",
-    ],
-    "youtube_queries": [
-        "Donald Trump live",
-        "Trump rally live",
-        "White House live",
-        "Trump speech live",
-        "Trump Iran talks live",
-        "US Iran talks live",
-        "Iran nuclear talks live",
-        "Iran ceasefire talks live",
-        "Iran peace talks live",
-        "Iran sanctions relief live",
-    ],
-    "news_queries": [
-        "Donald Trump",
-        "Trump speech",
-        "Trump rally",
-        "Trump interview",
-        "White House Trump",
-        "Trump Iran talks",
-        "Trump Iran negotiation",
-        "US Iran talks",
-        "Iran nuclear talks",
-        "Iran negotiation",
-        "Iran ceasefire talks",
-        "Iran peace talks",
-        "Iran end war talks",
-        "Iran sanctions relief",
-        "Iran sanctions lifted",
-        "Iran regulation relief",
-    ],
-}
-
-HIGH_PRIORITY_KEYWORDS = [
-    "tariff", "sanction", "ukraine", "china", "taiwan", "iran", "nato",
-    "south korea", "korea", "trade", "military", "nuclear", "election",
-    "bitcoin", "crypto", "fed", "interest rate", "tesla", "tiktok",
-]
-
-IRAN_TOPIC_KEYWORDS = [
-    "iran",
-    "iranian",
-    "tehran",
-    "irgc",
-    "revolutionary guard",
-    "persian gulf",
-    "nuclear site",
-    "uranium",
-]
-
-IRAN_SECONDARY_TOPIC_KEYWORDS = [
-    "israel",
-    "israeli",
-    "middle east",
-    "gaza",
-    "hamas",
-    "hezbollah",
-    "syria",
-    "lebanon",
-    "u.s.",
-    "us",
-    "american",
-]
-
-IRAN_CONFLICT_KEYWORDS = [
-    "war",
-    "missile",
-    "airstrike",
-    "strike",
-    "attack",
-    "bombing",
-    "retaliation",
-    "conflict",
-    "clash",
-    "military",
-    "troops",
-    "drone",
-    "ceasefire",
-    "intercepted",
-    "rocket",
-    "ballistic",
-]
-
-IRAN_WAR_STRICT_KEYWORDS = [
-    "iran war",
-    "war with iran",
-    "attack on iran",
-    "attack against iran",
-    "strike on iran",
-    "strike against iran",
-    "iran missile attack",
-    "iran nuclear site",
-    "israel iran conflict",
-    "iran israel war",
-]
-
-EPSTEIN_KEYWORDS = [
-    "epstein",
-    "jeffrey epstein",
-    "epstein files",
-    "epstein list",
-    "epstein case",
-    "epstein scandal",
-]
-
-IMPEACHMENT_KEYWORDS = [
-    "impeach",
-    "impeached",
-    "impeachment",
-    "articles of impeachment",
-]

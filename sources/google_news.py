@@ -9,6 +9,7 @@ import requests
 
 from config import REQUEST_TIMEOUT
 from models import Item
+from query_settings import get_query_setting_list
 from utils import compute_priority, is_within_recent_hours, parse_dt, sha1
 
 
@@ -134,6 +135,25 @@ def fetch_original_published_at(url: str) -> str:
     return parsed_candidates[0][1]
 
 
+def _extract_google_news_publisher(title: str) -> str:
+    text = (title or "").strip()
+    if " - " in text:
+        return text.rsplit(" - ", 1)[-1].strip().lower()
+    for dash in (" – ", " — "):
+        if dash in text:
+            return text.rsplit(dash, 1)[-1].strip().lower()
+    return ""
+
+
+def _is_trusted_publisher_item(title: str, description: str, link: str) -> bool:
+    publisher = _extract_google_news_publisher(title)
+    haystacks = [publisher, (description or "").lower(), (link or "").lower()]
+    for trusted_name in get_query_setting_list("trusted_news_publishers"):
+        if any(trusted_name in haystack for haystack in haystacks):
+            return True
+    return False
+
+
 def fetch_google_news_rss(query: str, recent_hours: int | None = None) -> list[Item]:
     rss_url = (
         "https://news.google.com/rss/search?"
@@ -154,6 +174,10 @@ def fetch_google_news_rss(query: str, recent_hours: int | None = None) -> list[I
         link = (node.findtext("link") or "").strip()
         pub_date = (node.findtext("pubDate") or "").strip()
         guid = (node.findtext("guid") or link or title).strip()
+
+        if _is_trusted_publisher_item(title, description, link):
+            continue
+
         original_published_at = fetch_original_published_at(link)
         effective_published_at = original_published_at or pub_date
 

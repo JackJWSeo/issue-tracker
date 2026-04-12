@@ -5,16 +5,8 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
-from config import (
-    EPSTEIN_KEYWORDS,
-    HIGH_PRIORITY_KEYWORDS,
-    IMPEACHMENT_KEYWORDS,
-    IRAN_CONFLICT_KEYWORDS,
-    LOCAL_TIMEZONE,
-    IRAN_SECONDARY_TOPIC_KEYWORDS,
-    IRAN_TOPIC_KEYWORDS,
-    IRAN_WAR_STRICT_KEYWORDS,
-)
+from config import LOCAL_TIMEZONE
+from query_settings import get_query_setting_list
 
 
 def sha1(text: str) -> str:
@@ -33,7 +25,7 @@ def compute_priority(title: str, body: str) -> int:
     text = normalize_text(title, body)
     score = 0
 
-    for kw in HIGH_PRIORITY_KEYWORDS:
+    for kw in get_query_setting_list("high_priority_keywords"):
         if kw in text:
             score += 2
 
@@ -48,12 +40,12 @@ def compute_priority(title: str, body: str) -> int:
 
 def contains_iran_war_keywords(*parts: str) -> bool:
     text = normalize_text(*parts)
-    if any(kw in text for kw in IRAN_WAR_STRICT_KEYWORDS):
+    if any(kw in text for kw in get_query_setting_list("iran_war_strict_keywords")):
         return True
 
-    has_primary_topic = any(kw in text for kw in IRAN_TOPIC_KEYWORDS)
-    has_secondary_topic = any(kw in text for kw in IRAN_SECONDARY_TOPIC_KEYWORDS)
-    has_conflict = any(kw in text for kw in IRAN_CONFLICT_KEYWORDS)
+    has_primary_topic = any(kw in text for kw in get_query_setting_list("iran_topic_keywords"))
+    has_secondary_topic = any(kw in text for kw in get_query_setting_list("iran_secondary_topic_keywords"))
+    has_conflict = any(kw in text for kw in get_query_setting_list("iran_conflict_keywords"))
     return has_primary_topic and has_secondary_topic and has_conflict
 
 
@@ -69,9 +61,9 @@ def classify_trump_content(*parts: str) -> str:
     text = normalize_text(*parts)
     if contains_iran_war_keywords(text):
         return "iran_war"
-    if any(keyword in text for keyword in EPSTEIN_KEYWORDS):
+    if any(keyword in text for keyword in get_query_setting_list("epstein_keywords")):
         return "epstein"
-    if any(keyword in text for keyword in IMPEACHMENT_KEYWORDS):
+    if any(keyword in text for keyword in get_query_setting_list("impeachment_keywords")):
         return "impeachment"
     return ""
 

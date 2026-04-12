@@ -16,6 +16,7 @@ from db import StateDB
 from models import Item
 from notifier import TelegramNotifier, format_alert
 from sources.google_news import fetch_google_news_rss
+from sources.trusted_news import fetch_trusted_news_articles
 from sources.truth_social import fetch_truthsocial_posts
 from sources.x_monitor import fetch_x_posts
 from sources.youtube_live import fetch_youtube_live
@@ -90,13 +91,21 @@ def collect_items(db: StateDB, settings: UISettings, log: LogFn = default_log) -
     for query in targets["news_queries"]:
         log(f"[NEWS] 수집 시작: {query}")
         try:
-            rows = fetch_google_news_rss(
+            trusted_rows = fetch_trusted_news_articles(
                 query,
                 recent_hours=settings.recent_hours if settings.use_recent_hours_filter else None,
             )
+            google_rows = fetch_google_news_rss(
+                query,
+                recent_hours=settings.recent_hours if settings.use_recent_hours_filter else None,
+            )
+            rows = trusted_rows + google_rows
             rows = apply_time_filter(rows, f"NEWS:{query}", settings, log=log)
             results.extend(rows)
-            log(f"[NEWS] 수집 완료: {query} items={len(rows)}")
+            log(
+                f"[NEWS] 수집 완료: {query} "
+                f"trusted={len(trusted_rows)} google={len(google_rows)} total={len(rows)}"
+            )
         except Exception as e:
             log(f"[NEWS] {query} 실패: {e}")
 

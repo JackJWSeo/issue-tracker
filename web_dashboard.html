@@ -192,6 +192,15 @@
     }
 
     .issue-card {
+      --card-accent-top: #9bc9f8;
+      --card-accent-bottom: #b9dcff;
+      --pill-bg-top: #e1efff;
+      --pill-bg-bottom: #d5e8ff;
+      --pill-text: #084f98;
+      --pill-border: rgba(11, 107, 203, 0.08);
+      --pill-hover-top: #d1e7ff;
+      --pill-hover-bottom: #c2deff;
+      --pill-hover-text: #063d75;
       position: relative;
       display: flex;
       flex-direction: column;
@@ -227,7 +236,67 @@
       left: -1px;
       width: 24px;
       border-radius: 26px 0 0 26px;
-      background: linear-gradient(180deg, #9bc9f8, #b9dcff);
+      background: linear-gradient(180deg, var(--card-accent-top), var(--card-accent-bottom));
+    }
+
+    .issue-card.source-trusted-news {
+      --card-accent-top: #0f766e;
+      --card-accent-bottom: #5eead4;
+      --pill-bg-top: #d7faf5;
+      --pill-bg-bottom: #baf4eb;
+      --pill-text: #0f5f59;
+      --pill-border: rgba(15, 118, 110, 0.14);
+      --pill-hover-top: #c2f6ee;
+      --pill-hover-bottom: #a6eee2;
+      --pill-hover-text: #0a4a45;
+    }
+
+    .issue-card.source-google-news {
+      --card-accent-top: #2563eb;
+      --card-accent-bottom: #93c5fd;
+      --pill-bg-top: #e1efff;
+      --pill-bg-bottom: #d5e8ff;
+      --pill-text: #084f98;
+      --pill-border: rgba(37, 99, 235, 0.12);
+      --pill-hover-top: #d1e7ff;
+      --pill-hover-bottom: #c2deff;
+      --pill-hover-text: #063d75;
+    }
+
+    .issue-card.source-truthsocial {
+      --card-accent-top: #7c3aed;
+      --card-accent-bottom: #c4b5fd;
+      --pill-bg-top: #eee7ff;
+      --pill-bg-bottom: #ddd0ff;
+      --pill-text: #5b21b6;
+      --pill-border: rgba(124, 58, 237, 0.12);
+      --pill-hover-top: #e6dcff;
+      --pill-hover-bottom: #d4c0ff;
+      --pill-hover-text: #4c1d95;
+    }
+
+    .issue-card.source-x {
+      --card-accent-top: #111827;
+      --card-accent-bottom: #9ca3af;
+      --pill-bg-top: #eef2f7;
+      --pill-bg-bottom: #dce4ef;
+      --pill-text: #111827;
+      --pill-border: rgba(17, 24, 39, 0.10);
+      --pill-hover-top: #e4eaf2;
+      --pill-hover-bottom: #cfd9e7;
+      --pill-hover-text: #030712;
+    }
+
+    .issue-card.source-youtube {
+      --card-accent-top: #dc2626;
+      --card-accent-bottom: #fca5a5;
+      --pill-bg-top: #ffe3e3;
+      --pill-bg-bottom: #ffd0d0;
+      --pill-text: #b91c1c;
+      --pill-border: rgba(220, 38, 38, 0.12);
+      --pill-hover-top: #ffd7d7;
+      --pill-hover-bottom: #ffc1c1;
+      --pill-hover-text: #991b1b;
     }
 
     .issue-card.is-new {
@@ -274,8 +343,8 @@
       gap: 6px;
       padding: 8px 12px;
       border-radius: 999px;
-      background: linear-gradient(180deg, #e1efff, #d5e8ff);
-      color: var(--accent-deep);
+      background: linear-gradient(180deg, var(--pill-bg-top), var(--pill-bg-bottom));
+      color: var(--pill-text);
       font-weight: 700;
       letter-spacing: -0.01em;
       max-width: 100%;
@@ -283,7 +352,7 @@
       overflow: hidden;
       text-overflow: ellipsis;
       text-decoration: none;
-      border: 1px solid rgba(11, 107, 203, 0.08);
+      border: 1px solid var(--pill-border);
       transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, color 0.18s ease;
       margin-left: -12px;
       margin-top: -4px;
@@ -292,8 +361,8 @@
     .source-pill:hover {
       transform: translateY(-1px);
       box-shadow: 0 10px 24px rgba(18, 39, 61, 0.08);
-      background: linear-gradient(180deg, #d1e7ff, #c2deff);
-      color: #063d75;
+      background: linear-gradient(180deg, var(--pill-hover-top), var(--pill-hover-bottom));
+      color: var(--pill-hover-text);
     }
 
     .issue-title {
@@ -436,7 +505,8 @@
           <div class="control-card">
             <strong>콘텐츠 종류 필터</strong>
             <div class="filter-list">
-              <label><input type="checkbox" id="filterGoogleNews" checked> 구글 뉴스</label>
+              <label><input type="checkbox" id="filterTrustedNews" checked> 주요 언론 기사</label>
+              <label><input type="checkbox" id="filterGoogleNews" checked> 기타 기사(구글 뉴스)</label>
               <label><input type="checkbox" id="filterTruthSocial" checked> 트루스소셜</label>
               <label><input type="checkbox" id="filterX" checked> X</label>
               <label><input type="checkbox" id="filterYoutube" checked> 유튜브</label>
@@ -465,6 +535,7 @@
     const issueSummaryEl = document.getElementById("issueSummary");
     const soundToggleEl = document.getElementById("soundToggle");
     const refreshSecondsInputEl = document.getElementById("refreshSecondsInput");
+    const filterTrustedNewsEl = document.getElementById("filterTrustedNews");
     const filterGoogleNewsEl = document.getElementById("filterGoogleNews");
     const filterTruthSocialEl = document.getElementById("filterTruthSocial");
     const filterXEl = document.getElementById("filterX");
@@ -546,6 +617,9 @@
 
     function buildSourceLabel(source) {
       if (!source) return "알 수 없는 출처";
+      if (source.startsWith("trusted_news:")) {
+        return `주요 언론 · ${source.slice("trusted_news:".length)}`;
+      }
       if (source.startsWith("google_news:")) {
         return `구글 뉴스 · ${source.slice("google_news:".length)}`;
       }
@@ -563,6 +637,7 @@
 
     function getSourceType(source) {
       if (!source) return "unknown";
+      if (source.startsWith("trusted_news:")) return "trusted_news";
       if (source.startsWith("google_news:")) return "google_news";
       if (source.startsWith("truthsocial:")) return "truthsocial";
       if (source.startsWith("x:")) return "x";
@@ -570,8 +645,19 @@
       return "unknown";
     }
 
+    function getSourceCardClass(source) {
+      const sourceType = getSourceType(source);
+      if (sourceType === "trusted_news") return "source-trusted-news";
+      if (sourceType === "google_news") return "source-google-news";
+      if (sourceType === "truthsocial") return "source-truthsocial";
+      if (sourceType === "x") return "source-x";
+      if (sourceType === "youtube") return "source-youtube";
+      return "source-unknown";
+    }
+
     function isVisibleByFilter(issue) {
       const sourceType = getSourceType(issue.source);
+      if (sourceType === "trusted_news") return filterTrustedNewsEl.checked;
       if (sourceType === "google_news") return filterGoogleNewsEl.checked;
       if (sourceType === "truthsocial") return filterTruthSocialEl.checked;
       if (sourceType === "x") return filterXEl.checked;
@@ -601,6 +687,7 @@
 
       issuesEl.innerHTML = visibleIssues.map((issue) => {
         const isNew = newIds.has(issue.item_id);
+        const sourceCardClass = getSourceCardClass(issue.source);
         const safeTitle = escapeHtml(issue.title);
         const safeDisplayTitle = escapeHtml(getDisplayTitle(issue));
         const safeSource = escapeHtml(buildSourceLabel(issue.source));
@@ -608,7 +695,7 @@
         const safeCreatedAt = escapeHtml(formatDate(issue.created_at));
         const safeItemId = escapeHtml(issue.item_id);
         return `
-          <article class="issue-card ${isNew ? "is-new" : ""}" data-item-id="${safeItemId}">
+          <article class="issue-card ${sourceCardClass} ${isNew ? "is-new" : ""}" data-item-id="${safeItemId}">
             <div class="issue-meta">
               <a class="source-pill" href="${safeUrl}" target="_blank" rel="noreferrer">출처 · ${safeSource}</a>
               <div class="issue-saved-at">${safeCreatedAt}</div>
@@ -699,7 +786,7 @@
       restartAutoRefresh();
     });
 
-    [filterGoogleNewsEl, filterTruthSocialEl, filterXEl, filterYoutubeEl].forEach((element) => {
+    [filterTrustedNewsEl, filterGoogleNewsEl, filterTruthSocialEl, filterXEl, filterYoutubeEl].forEach((element) => {
       element.addEventListener("change", () => {
         renderIssues(latestIssues, new Set());
       });
