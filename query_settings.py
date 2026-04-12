@@ -296,6 +296,56 @@ def get_query_setting_list(key: str) -> list[str]:
     return list(settings.get(key, []))
 
 
+def _tokenize_google_news_query(query: str) -> list[str]:
+    # NOTE:
+    # Google News 묶음 검색은 문장 전체 exact phrase보다
+    # 단어 단위 AND/OR 조합이 더 유연하다.
+    text = str(query or "").strip()
+    if not text:
+        return []
+    return [token for token in text.split() if token]
+
+
+def _build_google_news_boolean_clause(query: str) -> str:
+    tokens = _tokenize_google_news_query(query)
+    if not tokens:
+        return ""
+    if len(tokens) == 1:
+        return f'"{tokens[0]}"'
+
+    # NOTE:
+    # Google News RSS는 일반 검색엔진처럼 AND 연산자를 엄격하게 지원하지 않을 수 있다.
+    # 그래서 문장 내부는 AND 문자열 대신 핵심 토큰 나열 + 일부 phrase 유지 방식으로 완화한다.
+    first_two_phrase = " ".join(tokens[:2])
+    remaining_tokens = tokens[2:]
+    parts = [f'"{first_two_phrase}"'] if first_two_phrase else []
+    parts.extend(f'"{token}"' for token in remaining_tokens)
+    return "(" + " ".join(parts) + ")"
+
+
+def build_google_news_query_groups(queries: list[str], group_size: int = 4) -> list[dict[str, object]]:
+    # NOTE:
+    # Google News는 query마다 별도 호출하면 느려지므로,
+    # 여러 검색어를 OR 묶음으로 합쳐 호출 횟수를 줄인다.
+    # 문장 그대로 OR 하지 않고, 문장 내부는 단어 AND로 양자화해서 사용한다.
+    normalized_queries = _normalize_string_list(queries, [])
+    size = max(1, int(group_size))
+    groups: list[dict[str, object]] = []
+    for index in range(0, len(normalized_queries), size):
+        group_queries = normalized_queries[index:index + size]
+        clauses = [clause for clause in (_build_google_news_boolean_clause(query) for query in group_queries) if clause]
+        if not clauses:
+            continue
+        groups.append(
+            {
+                "queries": group_queries,
+                "search_query": " OR ".join(clauses),
+                "label": " | ".join(group_queries),
+            }
+        )
+    return groups
+
+
 def save_query_targets(targets: dict[str, list[str]]) -> None:
     # NOTE:
     # UI에서 검색어만 저장하더라도, keyword 설정을 날리지 않기 위해

@@ -240,27 +240,27 @@
     }
 
     .issue-card.source-trusted-news {
-      --card-accent-top: #0f766e;
-      --card-accent-bottom: #5eead4;
-      --pill-bg-top: #d7faf5;
-      --pill-bg-bottom: #baf4eb;
-      --pill-text: #0f5f59;
-      --pill-border: rgba(15, 118, 110, 0.14);
-      --pill-hover-top: #c2f6ee;
-      --pill-hover-bottom: #a6eee2;
-      --pill-hover-text: #0a4a45;
+      --card-accent-top: #d97706;
+      --card-accent-bottom: #f6ad55;
+      --pill-bg-top: #fff1dd;
+      --pill-bg-bottom: #ffe2bc;
+      --pill-text: #9a4a00;
+      --pill-border: rgba(217, 119, 6, 0.20);
+      --pill-hover-top: #ffe8cc;
+      --pill-hover-bottom: #ffd7a3;
+      --pill-hover-text: #7c3a00;
     }
 
     .issue-card.source-google-news {
-      --card-accent-top: #2563eb;
-      --card-accent-bottom: #93c5fd;
-      --pill-bg-top: #e1efff;
-      --pill-bg-bottom: #d5e8ff;
-      --pill-text: #084f98;
-      --pill-border: rgba(37, 99, 235, 0.12);
-      --pill-hover-top: #d1e7ff;
-      --pill-hover-bottom: #c2deff;
-      --pill-hover-text: #063d75;
+      --card-accent-top: #64748b;
+      --card-accent-bottom: #cbd5e1;
+      --pill-bg-top: #f1f5f9;
+      --pill-bg-bottom: #e2e8f0;
+      --pill-text: #475569;
+      --pill-border: rgba(100, 116, 139, 0.16);
+      --pill-hover-top: #e8eef5;
+      --pill-hover-bottom: #dbe4ee;
+      --pill-hover-text: #334155;
     }
 
     .issue-card.source-truthsocial {
@@ -618,19 +618,19 @@
     function buildSourceLabel(source) {
       if (!source) return "알 수 없는 출처";
       if (source.startsWith("trusted_news:")) {
-        return `주요 언론 · ${source.slice("trusted_news:".length)}`;
+        return "주요 언론";
       }
       if (source.startsWith("google_news:")) {
-        return `구글 뉴스 · ${source.slice("google_news:".length)}`;
+        return "구글 뉴스";
       }
       if (source.startsWith("x:")) {
-        return `X · ${source.slice("x:".length)}`;
+        return "X";
       }
       if (source.startsWith("youtube_live:")) {
-        return `유튜브 라이브 · ${source.slice("youtube_live:".length)}`;
+        return "유튜브 라이브";
       }
       if (source.startsWith("truthsocial:")) {
-        return `트루스소셜 · ${source.slice("truthsocial:".length)}`;
+        return "트루스소셜";
       }
       return source;
     }
@@ -692,13 +692,16 @@
         const safeDisplayTitle = escapeHtml(getDisplayTitle(issue));
         const safeSource = escapeHtml(buildSourceLabel(issue.source));
         const safeUrl = escapeHtml(issue.url);
-        const safeCreatedAt = escapeHtml(formatDate(issue.created_at));
+        const issueTimestamp = issue.published_at || issue.created_at;
+        const issueTimestampLabel = issue.published_at ? "발행" : "수집";
+        const safeIssueTimestamp = escapeHtml(formatDate(issueTimestamp));
+        const safeIssueTimestampLabel = escapeHtml(issueTimestampLabel);
         const safeItemId = escapeHtml(issue.item_id);
         return `
           <article class="issue-card ${sourceCardClass} ${isNew ? "is-new" : ""}" data-item-id="${safeItemId}">
             <div class="issue-meta">
               <a class="source-pill" href="${safeUrl}" target="_blank" rel="noreferrer">출처 · ${safeSource}</a>
-              <div class="issue-saved-at">${safeCreatedAt}</div>
+              <div class="issue-saved-at">${safeIssueTimestampLabel} ${safeIssueTimestamp}</div>
             </div>
             <h3 class="issue-title">${safeDisplayTitle}</h3>
             <div class="issue-detail">

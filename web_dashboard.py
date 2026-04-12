@@ -13,7 +13,7 @@ from urllib.request import urlopen
 
 from config import DB_PATH, RESOURCE_DIR
 from ui_settings import load_ui_settings
-from utils import looks_korean, match_exclude_keyword
+from utils import looks_korean, match_exclude_keyword, parse_dt
 
 
 DASHBOARD_HTML_PATH = RESOURCE_DIR / "web_dashboard.html"
@@ -46,6 +46,7 @@ def ensure_seen_items_schema(conn: sqlite3.Connection) -> None:
         ("body", "TEXT"),
         ("translated_title", "TEXT"),
         ("translated_body", "TEXT"),
+        ("published_at", "TEXT"),
     ):
         if column_name not in existing_columns:
             conn.execute(f"ALTER TABLE seen_items ADD COLUMN {column_name} {column_type}")
@@ -64,6 +65,18 @@ def parse_iso_datetime(value: str | None) -> datetime | None:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
+
+
+def parse_issue_datetime(published_at: str | None, created_at: str | None) -> datetime | None:
+    # NOTE:
+    # 대시보드의 "최근 기사" 판단은 저장 시각보다 실제 기사 발행시각을 우선한다.
+    # 발행시각을 파싱하지 못할 때만 created_at으로 fallback 한다.
+    published_dt = parse_dt(published_at)
+    if published_dt is not None:
+        if published_dt.tzinfo is None:
+            return published_dt.replace(tzinfo=timezone.utc)
+        return published_dt.astimezone(timezone.utc)
+    return parse_iso_datetime(created_at)
 
 
 def clean_text(value: str) -> str:
@@ -179,7 +192,8 @@ def _collect_issue_rows(
     seen_title_keys: set[str] = set()
     for row in rows:
         created_at = row["created_at"]
-        created_dt = parse_iso_datetime(created_at)
+        published_at = row["published_at"] or ""
+        issue_dt = parse_issue_datetime(published_at, created_at)
         translated_title, translated_body = hydrate_translations(
             conn,
             row,
@@ -206,12 +220,13 @@ def _collect_issue_rows(
                 "translated_title": translated_title,
                 "translated_body": translated_body,
                 "url": row["url"] or "",
+                "published_at": published_at,
                 "created_at": created_at or "",
-                "created_at_unix": int(created_dt.timestamp()) if created_dt else 0,
+                "issue_time_unix": int(issue_dt.timestamp()) if issue_dt else 0,
             }
         )
 
-    for issue in sorted(dedupe_candidates, key=lambda item: (item["created_at_unix"], item["item_id"])):
+    for issue in sorted(dedupe_candidates, key=lambda item: (item["issue_time_unix"], item["item_id"])):
         translated_key = normalize_title_for_dedupe(issue.get("translated_title") or "")
         original_key = normalize_title_for_dedupe(issue.get("title") or "")
         dedupe_keys = {key for key in (translated_key, original_key) if key}
@@ -220,7 +235,7 @@ def _collect_issue_rows(
         seen_title_keys.update(dedupe_keys)
         issues.append(issue)
 
-    issues.sort(key=lambda item: (item["created_at_unix"], item["item_id"]), reverse=True)
+    issues.sort(key=lambda item: (item["issue_time_unix"], item["item_id"]), reverse=True)
     return issues
 
 
@@ -240,22 +255,25 @@ def fetch_recent_issues(
 
         recent_rows = conn.execute(
             """
-            SELECT item_id, source, title, body, translated_title, translated_body, url, created_at
+            SELECT item_id, source, title, body, translated_title, translated_body, url, published_at, created_at
             FROM seen_items
-            WHERE created_at >= ?
             ORDER BY created_at DESC
             LIMIT ?
             """,
-            (cutoff.isoformat(), candidate_limit),
+            (candidate_limit,),
         ).fetchall()
-        recent_issues = _collect_issue_rows(conn, recent_rows, allow_live_translate=False)
+        recent_issues = [
+            issue
+            for issue in _collect_issue_rows(conn, recent_rows, allow_live_translate=False)
+            if issue["issue_time_unix"] >= int(cutoff.timestamp())
+        ]
 
         if len(recent_issues) >= fallback_target:
             return recent_issues[:requested_limit], "recent_window"
 
         latest_rows = conn.execute(
             """
-            SELECT item_id, source, title, body, translated_title, translated_body, url, created_at
+            SELECT item_id, source, title, body, translated_title, translated_body, url, published_at, created_at
             FROM seen_items
             ORDER BY created_at DESC
             LIMIT ?

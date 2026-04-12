@@ -1,6 +1,7 @@
 import json
 import re
 import xml.etree.ElementTree as ET
+from datetime import timezone
 from functools import lru_cache
 from html import unescape
 from urllib.parse import quote_plus
@@ -21,6 +22,8 @@ REQUEST_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
 }
+ORIGINAL_ARTICLE_TIMEOUT_SECONDS = min(REQUEST_TIMEOUT, 4)
+GOOGLE_NEWS_MAX_ITEMS_PER_QUERY = 6
 PROXY_ENV_KEYS = [
     "HTTP_PROXY",
     "HTTPS_PROXY",
@@ -104,7 +107,7 @@ def fetch_original_published_at(url: str) -> str:
     try:
         response = _build_session().get(
             url,
-            timeout=REQUEST_TIMEOUT,
+            timeout=ORIGINAL_ARTICLE_TIMEOUT_SECONDS,
             allow_redirects=True,
         )
         response.raise_for_status()
@@ -145,16 +148,76 @@ def _extract_google_news_publisher(title: str) -> str:
     return ""
 
 
-def _is_trusted_publisher_item(title: str, description: str, link: str) -> bool:
+def _is_trusted_publisher_item(
+    title: str,
+    description: str,
+    link: str,
+    excluded_publishers: list[str] | None = None,
+) -> bool:
     publisher = _extract_google_news_publisher(title)
     haystacks = [publisher, (description or "").lower(), (link or "").lower()]
-    for trusted_name in get_query_setting_list("trusted_news_publishers"):
+    publisher_list = excluded_publishers if excluded_publishers is not None else get_query_setting_list("trusted_news_publishers")
+    for trusted_name in publisher_list:
         if any(trusted_name in haystack for haystack in haystacks):
             return True
     return False
 
 
-def fetch_google_news_rss(query: str, recent_hours: int | None = None) -> list[Item]:
+def _extract_published_at_from_url(url: str) -> str:
+    # NOTE:
+    # 일부 비주요 매체는 메타 태그에 발행시각을 안 넣어서 Google RSS 시각으로 오염될 수 있다.
+    # 그 경우 URL에 포함된 날짜라도 잡아 최근 N시간 필터가 헐거워지지 않게 한다.
+    if not url:
+        return ""
+
+    patterns = [
+        re.compile(r"/(20\d{2})/(\d{2})/(\d{2})(?:/|$)"),
+        re.compile(r"-(20\d{2})-(\d{2})-(\d{2})(?:[-/]|$)"),
+        re.compile(r"/(20\d{2})(\d{2})(\d{2})(?:/|$)"),
+    ]
+    for pattern in patterns:
+        match = pattern.search(url)
+        if not match:
+            continue
+        year, month, day = match.groups()
+        try:
+            return f"{int(year):04d}-{int(month):02d}-{int(day):02d}T00:00:00+00:00"
+        except ValueError:
+            continue
+    return ""
+
+
+def _resolve_recent_hours_verified_time(
+    pub_date: str,
+    url_published_at: str,
+    original_published_at: str,
+    recent_hours: int,
+) -> str:
+    # NOTE:
+    # Google News 원문 중에는 published_time 메타가 아예 없는 경우가 적지 않다.
+    # 그렇다고 전부 버리면 실제 최신 기사도 모두 탈락하므로, 검증 우선순위를 둔다.
+    #
+    # 1. 원문 메타가 있으면 최우선 사용
+    # 2. URL 날짜가 있으면 오래된 기사 재유입 방지를 위해 그것을 신뢰
+    # 3. 둘 다 없을 때만 RSS pubDate를 제한적으로 fallback 사용
+    if original_published_at:
+        return original_published_at if is_within_recent_hours(original_published_at, recent_hours) else ""
+
+    if url_published_at:
+        return url_published_at if is_within_recent_hours(url_published_at, recent_hours) else ""
+
+    if pub_date and is_within_recent_hours(pub_date, recent_hours):
+        return pub_date
+
+    return ""
+
+
+def fetch_google_news_rss(
+    query: str,
+    recent_hours: int | None = None,
+    excluded_publishers: list[str] | None = None,
+    source_label: str | None = None,
+) -> tuple[list[Item], dict[str, int]]:
     rss_url = (
         "https://news.google.com/rss/search?"
         f"q={quote_plus(query)}&hl=en-US&gl=US&ceid=US:en"
@@ -165,28 +228,71 @@ def fetch_google_news_rss(query: str, recent_hours: int | None = None) -> list[I
     root = ET.fromstring(r.text)
     channel = root.find("channel")
     if channel is None:
-        return []
+        return [], {
+            "rss_raw_items": 0,
+            "publisher_filtered": 0,
+            "pre_filter_passed": 0,
+            "verified_passed": 0,
+            "accepted": 0,
+        }
 
     items: list[Item] = []
-    for node in channel.findall("item"):
+    raw_nodes = channel.findall("item")
+    stats = {
+        "rss_raw_items": len(raw_nodes),
+        "publisher_filtered": 0,
+        "pre_filter_passed": 0,
+        "verified_passed": 0,
+        "accepted": 0,
+    }
+    accepted_count = 0
+    for node in raw_nodes:
+        if accepted_count >= GOOGLE_NEWS_MAX_ITEMS_PER_QUERY:
+            break
+
         title = (node.findtext("title") or "").strip()
         description = (node.findtext("description") or "").strip()
         link = (node.findtext("link") or "").strip()
         pub_date = (node.findtext("pubDate") or "").strip()
         guid = (node.findtext("guid") or link or title).strip()
 
-        if _is_trusted_publisher_item(title, description, link):
+        if _is_trusted_publisher_item(title, description, link, excluded_publishers=excluded_publishers):
+            stats["publisher_filtered"] += 1
             continue
+
+        url_published_at = _extract_published_at_from_url(link)
+
+        if recent_hours is not None:
+            # NOTE:
+            # 속도 최적화를 위해 먼저 Google RSS pubDate로 1차 컷을 한다.
+            # 이 단계는 빠른 pre-filter이고, 통과한 카드만 원문 메타를 열어 최종 검증한다.
+            preliminary_published_at = pub_date or url_published_at
+            if preliminary_published_at and not is_within_recent_hours(preliminary_published_at, recent_hours):
+                continue
+            stats["pre_filter_passed"] += 1
 
         original_published_at = fetch_original_published_at(link)
-        effective_published_at = original_published_at or pub_date
+        effective_published_at = original_published_at or url_published_at or pub_date
 
-        if recent_hours is not None and not is_within_recent_hours(effective_published_at, recent_hours):
-            continue
+        if recent_hours is not None:
+            # NOTE:
+            # Google RSS pubDate만으로는 오래된 기사가 최근 기사처럼 보일 수 있다.
+            # 그래서 1차 통과 카드에 한해서만 원문 메타/URL 날짜를 우선 검증한다.
+            # 다만 둘 다 비어 있으면, 최신 기사 누락을 줄이기 위해 RSS pubDate를 제한적으로 fallback 사용한다.
+            verified_published_at = _resolve_recent_hours_verified_time(
+                pub_date=pub_date,
+                url_published_at=url_published_at,
+                original_published_at=original_published_at,
+                recent_hours=recent_hours,
+            )
+            if not verified_published_at:
+                continue
+            stats["verified_passed"] += 1
+            effective_published_at = verified_published_at
 
         items.append(
             Item(
-                source=f"google_news:{query}",
+                source=f"google_news:{source_label or query}",
                 title=title,
                 body=description,
                 url=link,
@@ -195,5 +301,7 @@ def fetch_google_news_rss(query: str, recent_hours: int | None = None) -> list[I
                 priority_score=compute_priority(title, description),
             )
         )
+        accepted_count += 1
+        stats["accepted"] += 1
 
-    return items
+    return items, stats

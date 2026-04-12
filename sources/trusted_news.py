@@ -54,14 +54,14 @@ JSON_LD_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 TRUSTED_NEWS_FEEDS = [
-    ("Reuters Top", "https://feeds.reuters.com/reuters/topNews"),
-    ("Reuters World", "https://feeds.reuters.com/Reuters/worldNews"),
-    ("Reuters Politics", "https://feeds.reuters.com/Reuters/PoliticsNews"),
-    ("BBC World", "https://feeds.bbci.co.uk/news/world/rss.xml"),
-    ("BBC Politics", "https://feeds.bbci.co.uk/news/politics/rss.xml"),
-    ("NPR News", "https://feeds.npr.org/1001/rss.xml"),
-    ("NYT World", "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"),
-    ("NYT Politics", "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml"),
+    ("reuters", "Reuters Top", "https://feeds.reuters.com/reuters/topNews"),
+    ("reuters", "Reuters World", "https://feeds.reuters.com/Reuters/worldNews"),
+    ("reuters", "Reuters Politics", "https://feeds.reuters.com/Reuters/PoliticsNews"),
+    ("bbc", "BBC World", "https://feeds.bbci.co.uk/news/world/rss.xml"),
+    ("bbc", "BBC Politics", "https://feeds.bbci.co.uk/news/politics/rss.xml"),
+    ("npr", "NPR News", "https://feeds.npr.org/1001/rss.xml"),
+    ("new york times", "NYT World", "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"),
+    ("new york times", "NYT Politics", "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml"),
 ]
 STOPWORDS = {
     "a",
@@ -252,45 +252,146 @@ def _parse_feed_entries(feed_xml: str) -> list[dict[str, str]]:
     return entries
 
 
-def fetch_trusted_news_articles(query: str, recent_hours: int | None = None) -> list[Item]:
+def fetch_trusted_feed_snapshot() -> tuple[list[dict[str, str]], set[str], set[str]]:
+    # NOTE:
+    # 주요 매체 RSS는 쿼리마다 다시 받지 않고, 한 수집 사이클에서 한 번만 받아 재사용한다.
+    # 느린/실패한 피드 대기를 query 개수만큼 반복하지 않도록 하기 위한 구조다.
     session = _build_session()
+    all_entries: list[dict[str, str]] = []
+    succeeded_publishers: set[str] = set()
+    attempted_publishers: set[str] = set()
+
+    for publisher_name, outlet_name, feed_url in TRUSTED_NEWS_FEEDS:
+        attempted_publishers.add(publisher_name)
+        try:
+            response = session.get(feed_url, timeout=REQUEST_TIMEOUT)
+            response.raise_for_status()
+        except requests.RequestException:
+            continue
+
+        succeeded_publishers.add(publisher_name)
+
+        for entry in _parse_feed_entries(response.text):
+            entry["source_label"] = outlet_name
+            entry["publisher_name"] = publisher_name
+            all_entries.append(entry)
+
+    failed_publishers = attempted_publishers - succeeded_publishers
+    return all_entries, succeeded_publishers, failed_publishers
+
+
+def fetch_trusted_news_articles_from_snapshot(
+    snapshot_entries: list[dict[str, str]],
+    query: str,
+    recent_hours: int | None = None,
+) -> list[Item]:
     items: list[Item] = []
     seen_ids: set[str] = set()
 
-    for outlet_name, feed_url in TRUSTED_NEWS_FEEDS:
-        response = session.get(feed_url, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+    for entry in snapshot_entries:
+        title = entry["title"]
+        body = entry["body"]
+        link = entry["link"]
+        guid = entry["guid"] or link or title
+        published_at = entry["published_at"]
+        outlet_name = entry["source_label"]
 
-        for entry in _parse_feed_entries(response.text):
-            title = entry["title"]
-            body = entry["body"]
-            link = entry["link"]
-            guid = entry["guid"] or link or title
-            published_at = entry["published_at"]
+        if not link or not _matches_query(query, title, body):
+            continue
 
-            if not link or not _matches_query(query, title, body):
-                continue
+        original_published_at = fetch_original_published_at(link)
+        effective_published_at = original_published_at or published_at
+        if recent_hours is not None and not is_within_recent_hours(effective_published_at, recent_hours):
+            continue
 
-            original_published_at = fetch_original_published_at(link)
-            effective_published_at = original_published_at or published_at
-            if recent_hours is not None and not is_within_recent_hours(effective_published_at, recent_hours):
-                continue
+        item_id = sha1(f"trusted_news|{guid}")
+        if item_id in seen_ids:
+            continue
+        seen_ids.add(item_id)
 
-            item_id = sha1(f"trusted_news|{guid}")
-            if item_id in seen_ids:
-                continue
-            seen_ids.add(item_id)
-
-            items.append(
-                Item(
-                    source=f"trusted_news:{outlet_name}",
-                    title=title,
-                    body=body,
-                    url=link,
-                    published_at=effective_published_at,
-                    item_id=item_id,
-                    priority_score=compute_priority(title, body),
-                )
+        items.append(
+            Item(
+                source=f"trusted_news:{outlet_name}",
+                title=title,
+                body=body,
+                url=link,
+                published_at=effective_published_at,
+                item_id=item_id,
+                priority_score=compute_priority(title, body),
             )
+        )
 
+    return items
+
+
+def fetch_trusted_news_articles_grouped_from_snapshot(
+    snapshot_entries: list[dict[str, str]],
+    queries: list[str],
+    recent_hours: int | None = None,
+) -> dict[str, list[Item]]:
+    # NOTE:
+    # trusted_news도 query마다 snapshot 전체를 다시 돌지 않고,
+    # 한 번의 순회에서 모든 query bucket에 동시에 분배한다.
+    # Google OR 그룹 호출과 마찬가지로, 후반부 로컬 매칭 비용과 로그 노이즈를 줄이기 위한 구조다.
+    grouped_items: dict[str, list[Item]] = {query: [] for query in queries}
+    seen_ids_by_query: dict[str, set[str]] = {query: set() for query in queries}
+
+    for entry in snapshot_entries:
+        title = entry["title"]
+        body = entry["body"]
+        link = entry["link"]
+        guid = entry["guid"] or link or title
+        published_at = entry["published_at"]
+        outlet_name = entry["source_label"]
+
+        if not link:
+            continue
+
+        original_published_at = fetch_original_published_at(link)
+        effective_published_at = original_published_at or published_at
+        if recent_hours is not None and not is_within_recent_hours(effective_published_at, recent_hours):
+            continue
+
+        item_id = sha1(f"trusted_news|{guid}")
+        item = Item(
+            source=f"trusted_news:{outlet_name}",
+            title=title,
+            body=body,
+            url=link,
+            published_at=effective_published_at,
+            item_id=item_id,
+            priority_score=compute_priority(title, body),
+        )
+
+        for query in queries:
+            if not _matches_query(query, title, body):
+                continue
+            if item_id in seen_ids_by_query[query]:
+                continue
+            seen_ids_by_query[query].add(item_id)
+            grouped_items[query].append(item)
+
+    return grouped_items
+
+
+def fetch_trusted_news_articles_with_status(
+    query: str,
+    recent_hours: int | None = None,
+) -> tuple[list[Item], set[str], set[str]]:
+    snapshot_entries, succeeded_publishers, failed_publishers = fetch_trusted_feed_snapshot()
+    items = fetch_trusted_news_articles_from_snapshot(
+        snapshot_entries,
+        query,
+        recent_hours=recent_hours,
+    )
+    return items, succeeded_publishers, failed_publishers
+
+
+def fetch_trusted_news_articles(query: str, recent_hours: int | None = None) -> list[Item]:
+    snapshot_entries, _succeeded_publishers, _failed_publishers = fetch_trusted_feed_snapshot()
+    items = fetch_trusted_news_articles_from_snapshot(
+        snapshot_entries,
+        query,
+        recent_hours=recent_hours,
+    )
     return items

@@ -22,6 +22,7 @@ class StateDB:
                 translated_title TEXT,
                 translated_body TEXT,
                 url TEXT,
+                published_at TEXT,
                 created_at TEXT NOT NULL
             )
             """
@@ -34,6 +35,7 @@ class StateDB:
             ("body", "TEXT"),
             ("translated_title", "TEXT"),
             ("translated_body", "TEXT"),
+            ("published_at", "TEXT"),
             ("normalized_title", "TEXT"),
             ("topic_tag", "TEXT"),
             ("duplicate_count", "INTEGER NOT NULL DEFAULT 0"),
@@ -76,10 +78,10 @@ class StateDB:
         cur.execute(
             """
             INSERT OR IGNORE INTO seen_items(
-                item_id, source, title, body, translated_title, translated_body, url, created_at,
+                item_id, source, title, body, translated_title, translated_body, url, published_at, created_at,
                 normalized_title, topic_tag, duplicate_count, last_duplicate_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 item.item_id,
@@ -89,6 +91,7 @@ class StateDB:
                 item.translated_title,
                 item.translated_body,
                 item.url,
+                item.published_at,
                 datetime.now(timezone.utc).isoformat(),
                 normalized_title,
                 topic_tag,

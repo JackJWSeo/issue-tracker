@@ -16,12 +16,15 @@ from db import StateDB
 from models import Item
 from notifier import TelegramNotifier, format_alert
 from sources.google_news import fetch_google_news_rss
-from sources.trusted_news import fetch_trusted_news_articles
+from sources.trusted_news import (
+    fetch_trusted_feed_snapshot,
+    fetch_trusted_news_articles_grouped_from_snapshot,
+)
 from sources.truth_social import fetch_truthsocial_posts
 from sources.x_monitor import fetch_x_posts
 from sources.youtube_live import fetch_youtube_live
 from sources.youtube_stt import enrich_item_with_stt_summary
-from query_settings import load_query_targets
+from query_settings import build_google_news_query_groups, load_query_targets
 from ui_settings import UISettings, load_ui_settings
 from utils import (
     classify_trump_content,
@@ -88,26 +91,102 @@ def collect_items(db: StateDB, settings: UISettings, log: LogFn = default_log) -
         except Exception as e:
             log(f"[YT] {query} 실패: {e}")
 
-    for query in targets["news_queries"]:
-        log(f"[NEWS] 수집 시작: {query}")
+    trusted_snapshot_entries: list[dict[str, str]] = []
+    trusted_succeeded_publishers: set[str] = set()
+    trusted_failed_publishers: set[str] = set()
+    try:
+        trusted_snapshot_entries, trusted_succeeded_publishers, trusted_failed_publishers = fetch_trusted_feed_snapshot()
+        log(
+            f"[NEWS][TRUSTED] 피드 스냅샷 완료 "
+            f"entries={len(trusted_snapshot_entries)} "
+            f"trusted_ok={sorted(trusted_succeeded_publishers)} "
+            f"trusted_fallback={sorted(trusted_failed_publishers)}"
+        )
+    except Exception as e:
+        log(f"[NEWS][TRUSTED] 피드 스냅샷 실패: {e}")
+
+    # NOTE:
+    # Google News는 query별 개별 호출보다 OR 그룹 호출이 훨씬 빠르다.
+    # 따라서 news_queries 전체를 소그룹으로 묶어 한 번씩만 호출하고,
+    # 받은 결과를 아래에서 다시 원래 query별 bucket으로 분배한다.
+    google_news_groups = build_google_news_query_groups(targets["news_queries"], group_size=4)
+    google_rows_by_query: dict[str, list[Item]] = {query: [] for query in targets["news_queries"]}
+    for group in google_news_groups:
+        group_queries = list(group["queries"])
+        group_query = str(group["search_query"])
+        group_label = str(group["label"])
         try:
-            trusted_rows = fetch_trusted_news_articles(
-                query,
+            group_rows, google_stats = fetch_google_news_rss(
+                group_query,
                 recent_hours=settings.recent_hours if settings.use_recent_hours_filter else None,
-            )
-            google_rows = fetch_google_news_rss(
-                query,
-                recent_hours=settings.recent_hours if settings.use_recent_hours_filter else None,
-            )
-            rows = trusted_rows + google_rows
-            rows = apply_time_filter(rows, f"NEWS:{query}", settings, log=log)
-            results.extend(rows)
-            log(
-                f"[NEWS] 수집 완료: {query} "
-                f"trusted={len(trusted_rows)} google={len(google_rows)} total={len(rows)}"
+                excluded_publishers=sorted(trusted_succeeded_publishers),
+                source_label=group_label,
             )
         except Exception as e:
-            log(f"[NEWS] {query} 실패: {e}")
+            log(f"[NEWS][GOOGLE-GROUP] {group_label} 실패: {e}")
+            group_rows = []
+            google_stats = {
+                "rss_raw_items": 0,
+                "publisher_filtered": 0,
+                "pre_filter_passed": 0,
+                "verified_passed": 0,
+                "accepted": 0,
+            }
+
+        for row in group_rows:
+            row_text = " ".join(
+                part for part in (
+                    row.title,
+                    row.body,
+                    row.translated_title,
+                    row.translated_body,
+                )
+                if part
+            ).lower()
+            for query in group_queries:
+                query_terms = [term for term in query.lower().split() if term]
+                if query_terms and all(term in row_text for term in query_terms):
+                    google_rows_by_query[query].append(row)
+
+        log(
+            f"[NEWS][GOOGLE-GROUP] 수집 완료: {group_label} "
+            f"rss_raw={google_stats['rss_raw_items']} "
+            f"publisher_filtered={google_stats['publisher_filtered']} "
+            f"pre_filter={google_stats['pre_filter_passed']} "
+            f"verified={google_stats['verified_passed']} "
+            f"google_total={len(group_rows)}"
+        )
+
+    trusted_rows_by_query: dict[str, list[Item]] = {query: [] for query in targets["news_queries"]}
+    try:
+        trusted_rows_by_query = fetch_trusted_news_articles_grouped_from_snapshot(
+            trusted_snapshot_entries,
+            targets["news_queries"],
+            recent_hours=settings.recent_hours if settings.use_recent_hours_filter else None,
+        )
+        trusted_total = sum(len(rows) for rows in trusted_rows_by_query.values())
+        log(
+            f"[NEWS][TRUSTED-GROUP] 수집 완료 "
+            f"queries={len(targets['news_queries'])} trusted_total={trusted_total} "
+            f"trusted_ok={sorted(trusted_succeeded_publishers)} trusted_fallback={sorted(trusted_failed_publishers)}"
+        )
+    except Exception as e:
+        log(f"[NEWS][TRUSTED-GROUP] 실패: {e}")
+
+    # NOTE:
+    # 개별 query 로그는 네트워크 재검색이 아니라, 이미 모은 trusted/google 결과를
+    # query별로 합쳐 최종 bucket을 만드는 로컬 분배 단계다.
+    for query in targets["news_queries"]:
+        trusted_rows = trusted_rows_by_query.get(query, [])
+        google_rows = google_rows_by_query.get(query, [])
+        rows = trusted_rows + google_rows
+        rows = apply_time_filter(rows, f"NEWS:{query}", settings, log=log)
+        results.extend(rows)
+        if rows:
+            log(
+                f"[NEWS][QUERY] {query} "
+                f"trusted={len(trusted_rows)} google={len(google_rows)} total={len(rows)}"
+            )
 
     def sort_key(item: Item):
         dt = parse_dt(item.published_at)
