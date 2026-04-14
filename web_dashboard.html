@@ -17,6 +17,11 @@
       --accent-deep: #084f98;
       --ring: rgba(11, 107, 203, 0.18);
       --danger: #d33f49;
+      --danger-soft: #ffe3df;
+      --warning: #d97706;
+      --warning-soft: #fff0db;
+      --success: #3f4f61;
+      --success-soft: #eef2f7;
       --shadow: 0 18px 60px rgba(18, 39, 61, 0.12);
       --border: rgba(18, 39, 61, 0.08);
     }
@@ -50,7 +55,7 @@
       top: 24px;
       display: grid;
       gap: 16px;
-      margin-top: 78px;
+      margin-top: 10px;
     }
 
     .sidebar-toggle {
@@ -132,6 +137,17 @@
       background: #fff;
     }
 
+    .control-card select {
+      width: 100%;
+      margin-top: 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font: inherit;
+      color: var(--text);
+      background: #fff;
+    }
+
     .filter-list {
       display: grid;
       gap: 8px;
@@ -171,6 +187,11 @@
       align-items: baseline;
       gap: 12px;
       margin: 28px 0 16px;
+    }
+
+    .content > .section-title:first-child {
+      margin-top: 10px;
+      margin-bottom: 10px;
     }
 
     .section-title h2 {
@@ -307,6 +328,18 @@
         inset 0 1px 0 rgba(255, 255, 255, 0.85);
     }
 
+    .issue-card.priority-urgent {
+      border-color: rgba(211, 63, 73, 0.42);
+      box-shadow:
+        0 24px 56px rgba(211, 63, 73, 0.18),
+        0 10px 22px rgba(18, 39, 61, 0.10),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    }
+
+    .issue-card.priority-important {
+      border-color: rgba(217, 119, 6, 0.26);
+    }
+
     .issue-card:hover {
       transform: translateY(-4px);
       box-shadow:
@@ -327,6 +360,14 @@
       z-index: 1;
     }
 
+    .issue-meta-left {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-width: 0;
+    }
+
     .issue-saved-at {
       color: var(--muted);
       font-size: 13px;
@@ -335,6 +376,37 @@
       text-align: right;
       white-space: nowrap;
       margin-top: -4px;
+    }
+
+    .priority-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 7px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+
+    .priority-badge.priority-urgent {
+      background: var(--danger-soft);
+      color: var(--danger);
+      border-color: rgba(211, 63, 73, 0.18);
+    }
+
+    .priority-badge.priority-important {
+      background: var(--warning-soft);
+      color: var(--warning);
+      border-color: rgba(217, 119, 6, 0.18);
+    }
+
+    .priority-badge.priority-normal {
+      background: var(--success-soft);
+      color: var(--muted-strong);
+      border-color: rgba(63, 79, 97, 0.10);
     }
 
     .source-pill {
@@ -425,6 +497,17 @@
       border-radius: 20px;
     }
 
+    .load-more-status {
+      padding: 18px 12px 4px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .load-more-trigger {
+      height: 8px;
+    }
+
     @media (max-width: 1180px) {
       .page {
         grid-template-columns: 300px minmax(0, 1fr);
@@ -489,6 +572,10 @@
           <div class="label" id="issueCountLabel">표시 중 이슈 수</div>
           <div class="value" id="issueCount">0</div>
         </div>
+        <div class="stat">
+          <div class="label">긴급 카드 수</div>
+          <div class="value" id="urgentIssueCount">0</div>
+        </div>
       </section>
       <section class="control-panel">
         <strong>알림 설정</strong>
@@ -501,6 +588,22 @@
             <strong>자동 새로고침 주기</strong>
             <div style="color: var(--muted); font-size: 14px;">초 단위로 입력하면 해당 주기로 자동 갱신합니다.</div>
             <input type="number" id="refreshSecondsInput" min="3" step="1" value="10">
+          </div>
+          <div class="control-card">
+            <strong>기본 표시 개수</strong>
+            <div style="color: var(--muted); font-size: 14px;">10개부터 100개까지 선택하고, 아래로 내리면 10개씩 더 표시합니다.</div>
+            <select id="displayCountSelect">
+              <option value="10" selected>10개</option>
+              <option value="20">20개</option>
+              <option value="30">30개</option>
+              <option value="40">40개</option>
+              <option value="50">50개</option>
+              <option value="60">60개</option>
+              <option value="70">70개</option>
+              <option value="80">80개</option>
+              <option value="90">90개</option>
+              <option value="100">100개</option>
+            </select>
           </div>
           <div class="control-card">
             <strong>콘텐츠 종류 필터</strong>
@@ -517,22 +620,21 @@
     </aside>
 
     <section class="content">
-      <div class="section-title">
-        <h2>실시간 이슈 카드</h2>
-        <p id="issueSummary">최근 1시간 이슈 우선, 10개 미만이면 최신 10개 표시</p>
-      </div>
-
       <section id="issues" class="issues"></section>
+      <div id="loadMoreStatus" class="load-more-status"></div>
+      <div id="loadMoreTrigger" class="load-more-trigger" aria-hidden="true"></div>
     </section>
   </main>
 
   <script>
-    const API_URL = "/api/issues?minutes=60&limit=100";
+    const DEFAULT_WINDOW_MINUTES = 60;
+    const MAX_FETCH_LIMIT = 100;
+    const LOAD_MORE_STEP = 10;
 
     const issuesEl = document.getElementById("issues");
     const issueCountEl = document.getElementById("issueCount");
     const issueCountLabelEl = document.getElementById("issueCountLabel");
-    const issueSummaryEl = document.getElementById("issueSummary");
+    const urgentIssueCountEl = document.getElementById("urgentIssueCount");
     const soundToggleEl = document.getElementById("soundToggle");
     const refreshSecondsInputEl = document.getElementById("refreshSecondsInput");
     const filterTrustedNewsEl = document.getElementById("filterTrustedNews");
@@ -540,15 +642,20 @@
     const filterTruthSocialEl = document.getElementById("filterTruthSocial");
     const filterXEl = document.getElementById("filterX");
     const filterYoutubeEl = document.getElementById("filterYoutube");
+    const displayCountSelectEl = document.getElementById("displayCountSelect");
     const sidebarEl = document.getElementById("sidebar");
     const sidebarToggleEl = document.getElementById("sidebarToggle");
     const sidebarToggleLabelEl = document.getElementById("sidebarToggleLabel");
+    const loadMoreStatusEl = document.getElementById("loadMoreStatus");
+    const loadMoreTriggerEl = document.getElementById("loadMoreTrigger");
 
     let previousIds = new Set();
     let hasLoadedOnce = false;
     let refreshTimer = null;
     let lastRenderedSignature = "";
     let latestIssues = { issues: [], selection_mode: "recent_window", window_minutes: 60, fallback_min_count: 10 };
+    let visibleIssueCount = 10;
+    let loadMoreObserver = null;
 
     function formatDate(value) {
       if (!value) return "-";
@@ -665,27 +772,56 @@
       return true;
     }
 
-    function updateIssueSummary(data, visibleCount) {
+    function getBaseDisplayCount() {
+      const value = Number.parseInt(displayCountSelectEl.value || "10", 10);
+      return Math.min(MAX_FETCH_LIMIT, Math.max(10, Number.isNaN(value) ? 10 : value));
+    }
+
+    function getApiUrl() {
+      const params = new URLSearchParams({
+        minutes: String(DEFAULT_WINDOW_MINUTES),
+        limit: String(MAX_FETCH_LIMIT),
+        fallback_min_count: String(getBaseDisplayCount()),
+      });
+      return `/api/issues?${params.toString()}`;
+    }
+
+    function ensureVisibleIssueCount() {
+      visibleIssueCount = Math.max(visibleIssueCount, getBaseDisplayCount());
+    }
+
+    function loadMoreIssues() {
+      const totalVisible = (latestIssues.issues || []).filter(isVisibleByFilter).length;
+      if (visibleIssueCount >= totalVisible) {
+        return;
+      }
+      visibleIssueCount = Math.min(totalVisible, visibleIssueCount + LOAD_MORE_STEP);
+      renderIssues(latestIssues, new Set());
+    }
+
+    function updateIssueSummary(data, displayedCount, totalCount) {
       const isFallback = data.selection_mode === "latest_fallback";
-      issueCountLabelEl.textContent = isFallback ? "최신 기준 이슈 수" : "최근 1시간 이슈 수";
-      issueSummaryEl.textContent = isFallback
-        ? `최근 ${data.window_minutes}분 이슈가 ${data.fallback_min_count}개 미만이라 최신 ${data.fallback_min_count}개를 표시 중`
-        : `최근 ${data.window_minutes}분 이슈를 표시 중`;
-      issueCountEl.textContent = String(visibleCount);
+      const urgentCount = (data.issues || []).filter((issue) => issue.priority_level === "urgent" && isVisibleByFilter(issue)).length;
+      issueCountLabelEl.textContent = isFallback ? "최신 기준 표시 수" : "최근 1시간 표시 수";
+      urgentIssueCountEl.textContent = String(urgentCount);
+      issueCountEl.textContent = `${displayedCount}/${totalCount}`;
     }
 
     function renderIssues(data, newIds) {
       const issues = data.issues || [];
       const visibleIssues = issues.filter(isVisibleByFilter);
+      ensureVisibleIssueCount();
+      const displayedIssues = visibleIssues.slice(0, visibleIssueCount);
 
-      updateIssueSummary(data, visibleIssues.length);
+      updateIssueSummary(data, displayedIssues.length, visibleIssues.length);
 
       if (!visibleIssues.length) {
         issuesEl.innerHTML = '<div class="empty">선택한 조건에 맞는 이슈가 없습니다.</div>';
+        loadMoreStatusEl.textContent = "";
         return;
       }
 
-      issuesEl.innerHTML = visibleIssues.map((issue) => {
+      issuesEl.innerHTML = displayedIssues.map((issue) => {
         const isNew = newIds.has(issue.item_id);
         const sourceCardClass = getSourceCardClass(issue.source);
         const safeTitle = escapeHtml(issue.title);
@@ -697,10 +833,15 @@
         const safeIssueTimestamp = escapeHtml(formatDate(issueTimestamp));
         const safeIssueTimestampLabel = escapeHtml(issueTimestampLabel);
         const safeItemId = escapeHtml(issue.item_id);
+        const safePriorityLabel = escapeHtml(issue.priority_label || "일반");
+        const priorityClass = escapeHtml(`priority-${issue.priority_level || "normal"}`);
         return `
-          <article class="issue-card ${sourceCardClass} ${isNew ? "is-new" : ""}" data-item-id="${safeItemId}">
+          <article class="issue-card ${sourceCardClass} ${priorityClass} ${isNew ? "is-new" : ""}" data-item-id="${safeItemId}">
             <div class="issue-meta">
-              <a class="source-pill" href="${safeUrl}" target="_blank" rel="noreferrer">출처 · ${safeSource}</a>
+              <div class="issue-meta-left">
+                <a class="source-pill" href="${safeUrl}" target="_blank" rel="noreferrer">출처 · ${safeSource}</a>
+                <span class="priority-badge ${priorityClass}">${safePriorityLabel}</span>
+              </div>
               <div class="issue-saved-at">${safeIssueTimestampLabel} ${safeIssueTimestamp}</div>
             </div>
             <h3 class="issue-title">${safeDisplayTitle}</h3>
@@ -713,20 +854,31 @@
           </article>
         `;
       }).join("");
+
+      if (displayedIssues.length < visibleIssues.length) {
+        const remaining = visibleIssues.length - displayedIssues.length;
+        loadMoreStatusEl.textContent = `아래로 내리면 ${Math.min(LOAD_MORE_STEP, remaining)}개를 더 불러옵니다. 현재 ${displayedIssues.length} / ${visibleIssues.length}`;
+      } else {
+        loadMoreStatusEl.textContent = `모든 이슈를 표시 중입니다. 총 ${visibleIssues.length}개`;
+      }
     }
 
     async function refreshIssues() {
       try {
-        const response = await fetch(API_URL, { cache: "no-store" });
+        const response = await fetch(getApiUrl(), { cache: "no-store" });
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
 
         const data = await response.json();
         latestIssues = data;
+        ensureVisibleIssueCount();
         const ids = new Set(data.issues.map((issue) => issue.item_id));
         const newIds = new Set();
-        const renderSignature = JSON.stringify(data.issues.map((issue) => [issue.item_id, issue.created_at]));
+        const renderSignature = JSON.stringify({
+          fallback_min_count: data.fallback_min_count,
+          issues: data.issues.map((issue) => [issue.item_id, issue.created_at]),
+        });
 
         if (hasLoadedOnce) {
           for (const id of ids) {
@@ -795,6 +947,13 @@
       });
     });
 
+    displayCountSelectEl.addEventListener("change", () => {
+      visibleIssueCount = getBaseDisplayCount();
+      hasLoadedOnce = false;
+      lastRenderedSignature = "";
+      refreshIssues();
+    });
+
     sidebarToggleEl.addEventListener("click", () => {
       if (!window.matchMedia("(max-width: 900px)").matches) {
         return;
@@ -804,6 +963,14 @@
     });
 
     window.addEventListener("resize", syncSidebarForViewport);
+    loadMoreObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          loadMoreIssues();
+        }
+      }
+    }, { rootMargin: "0px 0px 240px 0px" });
+    loadMoreObserver.observe(loadMoreTriggerEl);
     refreshIssues();
     restartAutoRefresh();
     syncSidebarForViewport();

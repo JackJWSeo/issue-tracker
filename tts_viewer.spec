@@ -22,6 +22,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name='tts_viewer',
+    icon=['build/generated/tts_viewer_icon.ico'],
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

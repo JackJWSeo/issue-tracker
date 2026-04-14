@@ -8,7 +8,7 @@ import requests
 
 from config import REQUEST_TIMEOUT
 from models import Item
-from utils import compute_priority, is_within_recent_hours, parse_dt, sha1
+from utils import compute_priority, is_within_recent_hours, matches_news_query, parse_dt, sha1
 
 
 REQUEST_HEADERS = {
@@ -63,23 +63,6 @@ TRUSTED_NEWS_FEEDS = [
     ("new york times", "NYT World", "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"),
     ("new york times", "NYT Politics", "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml"),
 ]
-STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "end",
-    "for",
-    "house",
-    "in",
-    "of",
-    "on",
-    "the",
-    "to",
-    "trump",
-    "white",
-}
-
-
 def _build_session() -> requests.Session:
     session = requests.Session()
     session.trust_env = False
@@ -165,28 +148,8 @@ def fetch_original_published_at(url: str) -> str:
     return parsed_candidates[0][1]
 
 
-def _normalize_query_tokens(query: str) -> list[str]:
-    tokens = re.findall(r"[a-z0-9]+", (query or "").lower())
-    return [token for token in tokens if len(token) >= 2 and token not in STOPWORDS]
-
-
 def _matches_query(query: str, title: str, body: str) -> bool:
-    text = f"{title} {body}".lower()
-    normalized_text = re.sub(r"[^a-z0-9\s]", " ", text)
-    normalized_text = re.sub(r"\s+", " ", normalized_text).strip()
-    normalized_query = re.sub(r"[^a-z0-9\s]", " ", (query or "").lower())
-    normalized_query = re.sub(r"\s+", " ", normalized_query).strip()
-
-    if normalized_query and normalized_query in normalized_text:
-        return True
-
-    tokens = _normalize_query_tokens(query)
-    if not tokens:
-        return False
-
-    matched = sum(1 for token in tokens if token in normalized_text)
-    required = len(tokens) if len(tokens) <= 2 else max(2, len(tokens) - 1)
-    return matched >= required
+    return matches_news_query(query, title, body)
 
 
 def _get_child_text(node: ET.Element, *names: str) -> str:

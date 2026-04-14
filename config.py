@@ -58,3 +58,12 @@ REQUEST_TIMEOUT = int(get_secret("REQUEST_TIMEOUT", "20"))
 OPENAI_SUMMARY_MODEL = get_secret("OPENAI_SUMMARY_MODEL", "gpt-4.1-mini")
 USE_AI_IRAN_WAR_FILTER = get_secret("USE_AI_IRAN_WAR_FILTER", "1").lower() in {"1", "true", "yes", "on"}
 LOCAL_TIMEZONE = get_secret("LOCAL_TIMEZONE", "Asia/Seoul")
+WEB_DASHBOARD_ALLOW_PUBLIC = get_secret("WEB_DASHBOARD_ALLOW_PUBLIC", "0").lower() in {"1", "true", "yes", "on"}
+WEB_DASHBOARD_ALLOWED_HOSTS = [
+    host.strip().lower()
+    for host in get_secret("WEB_DASHBOARD_ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+]
+IGNORED_NEWS_PUBLISHERS_PATH = Path(
+    os.getenv("IGNORED_NEWS_PUBLISHERS_PATH", APP_BASE_DIR / "ignored_news_publishers.txt")
+)

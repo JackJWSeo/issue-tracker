@@ -7,6 +7,8 @@ $workPath = Join-Path $projectRoot "build\pyinstaller_work"
 $specPath = Join-Path $projectRoot "build\pyinstaller_spec"
 $dashboardHtml = Join-Path $projectRoot "web_dashboard.html"
 $workerScript = Join-Path $projectRoot "melotts_windows_worker.py"
+$iconScript = Join-Path $projectRoot "generate_tts_viewer_icon.py"
+$iconPath = Join-Path $projectRoot ("build\generated\tts_viewer_icon_" + (Get-Date -Format "yyyyMMdd_HHmmss") + ".ico")
 New-Item -ItemType Directory -Force -Path $workPath | Out-Null
 New-Item -ItemType Directory -Force -Path $specPath | Out-Null
 
@@ -17,6 +19,7 @@ if (-not (Test-Path ".\.venv310\Scripts\python.exe")) {
 $python = Resolve-Path ".\.venv310\Scripts\python.exe"
 
 & $python -m pip install --upgrade pip pyinstaller
+& $python $iconScript $iconPath
 & $python -m PyInstaller `
     --noconfirm `
     --clean `
@@ -25,6 +28,7 @@ $python = Resolve-Path ".\.venv310\Scripts\python.exe"
     --name tts_viewer `
     --workpath $workPath `
     --specpath $specPath `
+    --icon $iconPath `
     --add-data "${dashboardHtml};." `
     --add-data "${workerScript};." `
     desktop_tts_viewer.py

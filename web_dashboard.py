@@ -1,19 +1,28 @@
 import json
+import ipaddress
 import re
 import sqlite3
+import threading
 from datetime import datetime, timedelta, timezone
+from collections import defaultdict, deque
 from email.utils import formatdate
 from html import unescape
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-from urllib.error import URLError
-from urllib.parse import parse_qs, urlencode, urlparse
-from urllib.request import urlopen
+from socket import timeout as SocketTimeout
+from urllib.parse import parse_qs, urlparse
 
-from config import DB_PATH, RESOURCE_DIR
+from config import (
+    DB_PATH,
+    RESOURCE_DIR,
+    WEB_DASHBOARD_ALLOWED_HOSTS,
+    WEB_DASHBOARD_ALLOW_PUBLIC,
+)
 from ui_settings import load_ui_settings
-from utils import looks_korean, match_exclude_keyword, parse_dt
+from utils import (
+    match_exclude_keyword,
+    parse_dt,
+)
 
 
 DASHBOARD_HTML_PATH = RESOURCE_DIR / "web_dashboard.html"
@@ -22,8 +31,125 @@ DEFAULT_PORT = 15242
 DEFAULT_WINDOW_MINUTES = 60
 DEFAULT_LIMIT = 100
 DEFAULT_FALLBACK_MIN_COUNT = 10
-TRANSLATION_TIMEOUT_SECONDS = 10
-_translation_cache: dict[str, str] = {}
+SOCKET_TIMEOUT_SECONDS = 5
+MAX_PATH_LENGTH = 2048
+MAX_QUERY_LENGTH = 512
+MAX_QUERY_PARAMS = 8
+MAX_WINDOW_MINUTES = 24 * 60
+SECURITY_CSP = (
+    "default-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "connect-src 'self'; "
+    "font-src 'self' data:; "
+    "object-src 'none'; "
+    "base-uri 'none'; "
+    "frame-ancestors 'none'"
+)
+RATE_LIMIT_WINDOW_SECONDS = 10
+RATE_LIMIT_MAX_REQUESTS = 40
+RATE_LIMIT_MAX_API_REQUESTS = 20
+RATE_LIMIT_BLOCK_SECONDS = 120
+_rate_limit_lock = threading.Lock()
+_rate_limit_events: dict[str, deque[float]] = defaultdict(deque)
+_rate_limit_api_events: dict[str, deque[float]] = defaultdict(deque)
+_rate_limit_blocked_until: dict[str, float] = {}
+
+
+def _is_private_or_loopback_ip(value: str) -> bool:
+    try:
+        ip = ipaddress.ip_address((value or "").strip())
+    except ValueError:
+        return False
+    return ip.is_private or ip.is_loopback or ip.is_link_local
+
+
+def is_allowed_client_ip(client_ip: str) -> bool:
+    if WEB_DASHBOARD_ALLOW_PUBLIC:
+        return True
+    return _is_private_or_loopback_ip(client_ip)
+
+
+def build_allowed_hostnames(server: ThreadingHTTPServer) -> set[str]:
+    configured = {host for host in WEB_DASHBOARD_ALLOWED_HOSTS if host}
+    bound_host = str(getattr(server, "server_address", ("", 0))[0] or "").strip().lower()
+    allowed = {
+        "localhost",
+        "127.0.0.1",
+        "[::1]",
+        "0.0.0.0",
+    }
+    if bound_host and bound_host != "0.0.0.0":
+        allowed.add(bound_host)
+    allowed.update(configured)
+    return allowed
+
+
+def is_valid_host_header(host_header: str, server: ThreadingHTTPServer) -> bool:
+    value = (host_header or "").strip().lower()
+    if not value:
+        return False
+    if len(value) > 255 or any(char in value for char in ("\r", "\n", "/", "\\", "@")):
+        return False
+    hostname = value
+    if value.startswith("["):
+        bracket_end = value.find("]")
+        hostname = value[: bracket_end + 1] if bracket_end > 0 else value
+    elif ":" in value:
+        hostname = value.split(":", 1)[0]
+    if hostname in build_allowed_hostnames(server):
+        return True
+    if hostname == "0.0.0.0" or _is_private_or_loopback_ip(hostname):
+        return True
+    try:
+        ipaddress.ip_address(hostname.strip("[]"))
+        return True
+    except ValueError:
+        pass
+    if re.fullmatch(r"[a-z0-9.-]+", hostname):
+        local_host_suffixes = (".local", ".lan", ".home", ".internal")
+        if hostname.endswith(local_host_suffixes):
+            return True
+        if "." in hostname:
+            return True
+    return False
+
+
+def _prune_rate_limit_entries(events: deque[float], now_ts: float, window_seconds: int) -> None:
+    cutoff = now_ts - window_seconds
+    while events and events[0] < cutoff:
+        events.popleft()
+
+
+def check_rate_limit(client_ip: str, path: str) -> tuple[bool, int | None]:
+    now_ts = datetime.now(timezone.utc).timestamp()
+    is_api_request = path.startswith("/api/")
+    with _rate_limit_lock:
+        blocked_until = _rate_limit_blocked_until.get(client_ip, 0.0)
+        if blocked_until > now_ts:
+            retry_after = max(1, int(blocked_until - now_ts))
+            return False, retry_after
+        if blocked_until:
+            _rate_limit_blocked_until.pop(client_ip, None)
+
+        general_events = _rate_limit_events[client_ip]
+        _prune_rate_limit_entries(general_events, now_ts, RATE_LIMIT_WINDOW_SECONDS)
+        general_events.append(now_ts)
+
+        if len(general_events) > RATE_LIMIT_MAX_REQUESTS:
+            _rate_limit_blocked_until[client_ip] = now_ts + RATE_LIMIT_BLOCK_SECONDS
+            return False, RATE_LIMIT_BLOCK_SECONDS
+
+        if is_api_request:
+            api_events = _rate_limit_api_events[client_ip]
+            _prune_rate_limit_entries(api_events, now_ts, RATE_LIMIT_WINDOW_SECONDS)
+            api_events.append(now_ts)
+            if len(api_events) > RATE_LIMIT_MAX_API_REQUESTS:
+                _rate_limit_blocked_until[client_ip] = now_ts + RATE_LIMIT_BLOCK_SECONDS
+                return False, RATE_LIMIT_BLOCK_SECONDS
+
+    return True, None
 
 
 def ensure_seen_items_schema(conn: sqlite3.Connection) -> None:
@@ -47,10 +173,68 @@ def ensure_seen_items_schema(conn: sqlite3.Connection) -> None:
         ("translated_title", "TEXT"),
         ("translated_body", "TEXT"),
         ("published_at", "TEXT"),
+        ("priority_score", "INTEGER NOT NULL DEFAULT 0"),
+        ("priority_level", "TEXT NOT NULL DEFAULT 'normal'"),
     ):
         if column_name not in existing_columns:
-            conn.execute(f"ALTER TABLE seen_items ADD COLUMN {column_name} {column_type}")
-    conn.commit()
+            try:
+                conn.execute(f"ALTER TABLE seen_items ADD COLUMN {column_name} {column_type}")
+            except sqlite3.OperationalError:
+                # NOTE:
+                # 읽기 전용 DB에서는 ALTER TABLE이 실패할 수 있다.
+                # 이 경우에도 대시보드는 기존 컬럼만으로 계속 동작하고,
+                # priority_score는 조회 시 즉석 계산 fallback을 사용한다.
+                continue
+    try:
+        conn.execute(
+            """
+            UPDATE seen_items
+            SET priority_level = CASE
+                WHEN COALESCE(priority_score, 0) >= 12 THEN 'urgent'
+                WHEN COALESCE(priority_score, 0) >= 6 THEN 'important'
+                ELSE 'normal'
+            END
+            WHERE priority_level IS NULL OR priority_level = ''
+            """
+        )
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+
+def get_seen_items_columns(conn: sqlite3.Connection) -> set[str]:
+    return {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(seen_items)").fetchall()
+    }
+
+
+def build_seen_items_select_sql(existing_columns: set[str]) -> str:
+    def select_expr(column_name: str, fallback_sql: str) -> str:
+        if column_name in existing_columns:
+            return column_name
+        return f"{fallback_sql} AS {column_name}"
+
+    return f"""
+        SELECT
+            {select_expr("item_id", "''")},
+            {select_expr("source", "''")},
+            {select_expr("title", "''")},
+            {select_expr("body", "''")},
+            {select_expr("translated_title", "''")},
+            {select_expr("translated_body", "''")},
+            {select_expr("url", "''")},
+            {select_expr("published_at", "''")},
+            {select_expr("created_at", "''")},
+            {select_expr("priority_score", "0")}
+            , {select_expr("priority_level", "'normal'")}
+        FROM seen_items
+        ORDER BY created_at DESC
+        LIMIT ?
+    """
 
 
 def parse_iso_datetime(value: str | None) -> datetime | None:
@@ -107,85 +291,33 @@ def normalize_title_for_dedupe(value: str) -> str:
     return text
 
 
-def translate_to_korean(text: str) -> str:
-    text = clean_text(text)
-    if not text or looks_korean(text):
-        return text
-
-    cached = _translation_cache.get(text)
-    if cached is not None:
-        return cached
-
-    translated = text
-    try:
-        query = urlencode(
-            {
-                "client": "gtx",
-                "sl": "auto",
-                "tl": "ko",
-                "dt": "t",
-                "q": text[:4000],
-            }
-        )
-        with urlopen(
-            f"https://translate.googleapis.com/translate_a/single?{query}",
-            timeout=TRANSLATION_TIMEOUT_SECONDS,
-        ) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        segments = payload[0] if isinstance(payload, list) and payload else []
-        merged = "".join(part[0] for part in segments if isinstance(part, list) and part and part[0])
-        translated = clean_text(merged) or text
-    except (OSError, ValueError, URLError):
-        translated = text
-
-    _translation_cache[text] = translated
-    return translated
-
-
-def hydrate_translations(
-    conn: sqlite3.Connection,
-    row: sqlite3.Row,
-    allow_live_translate: bool = True,
-) -> tuple[str, str]:
+def hydrate_translations(row: sqlite3.Row) -> tuple[str, str]:
+    # NOTE:
+    # 번역은 수집/저장 단계에서 DB 컬럼에 채워지는 것이 원칙이다.
+    # 대시보드는 저장된 translated_title/translated_body만 읽고,
+    # 실시간 번역이나 DB 쓰기 fallback을 수행하지 않는다.
     translated_title = clean_text(row["translated_title"] or "")
     translated_body = clean_text(row["translated_body"] or "")
-    original_title = clean_text(row["title"] or "")
-    original_body = clean_text(row["body"] or "")
-
-    if not allow_live_translate:
-        return translated_title, translated_body
-
-    changed = False
-    if not translated_title and original_title:
-        translated_title = translate_to_korean(original_title)
-        changed = translated_title != clean_text(row["translated_title"] or "")
-
-    if not translated_body and original_body:
-        translated_body = translate_to_korean(original_body)
-        changed = changed or translated_body != clean_text(row["translated_body"] or "")
-
-    if changed:
-        try:
-            conn.execute(
-                """
-                UPDATE seen_items
-                SET translated_title = ?, translated_body = ?
-                WHERE item_id = ?
-                """,
-                (translated_title, translated_body, row["item_id"]),
-            )
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass
-
     return translated_title, translated_body
 
 
-def _collect_issue_rows(
-    conn: sqlite3.Connection,
-    rows: list[sqlite3.Row],
-    allow_live_translate: bool = True,
-) -> list[dict]:
+def normalize_priority_level(value: str) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"urgent", "important", "normal"}:
+        return text
+    return "normal"
+
+
+def priority_level_label(level: str) -> str:
+    normalized = normalize_priority_level(level)
+    if normalized == "urgent":
+        return "긴급"
+    if normalized == "important":
+        return "중요"
+    return "일반"
+
+
+def _collect_issue_rows(rows: list[sqlite3.Row]) -> list[dict]:
     settings = load_ui_settings()
     issues: list[dict] = []
     dedupe_candidates: list[dict] = []
@@ -194,13 +326,11 @@ def _collect_issue_rows(
         created_at = row["created_at"]
         published_at = row["published_at"] or ""
         issue_dt = parse_issue_datetime(published_at, created_at)
-        translated_title, translated_body = hydrate_translations(
-            conn,
-            row,
-            allow_live_translate=allow_live_translate,
-        )
+        translated_title, translated_body = hydrate_translations(row)
         title = clean_text(row["title"] or "") or "(제목 없음)"
         body = clean_text(row["body"] or "")
+        priority_score = int(row["priority_score"] or 0)
+        priority_level = normalize_priority_level(row["priority_level"] or "normal")
         matched_exclude_keyword = match_exclude_keyword(
             settings.exclude_keywords,
             title,
@@ -223,10 +353,16 @@ def _collect_issue_rows(
                 "published_at": published_at,
                 "created_at": created_at or "",
                 "issue_time_unix": int(issue_dt.timestamp()) if issue_dt else 0,
+                "priority_score": priority_score,
+                "priority_level": priority_level,
+                "priority_label": priority_level_label(priority_level),
             }
         )
 
-    for issue in sorted(dedupe_candidates, key=lambda item: (item["issue_time_unix"], item["item_id"])):
+    for issue in sorted(
+        dedupe_candidates,
+        key=lambda item: (item["issue_time_unix"], item["item_id"]),
+    ):
         translated_key = normalize_title_for_dedupe(issue.get("translated_title") or "")
         original_key = normalize_title_for_dedupe(issue.get("title") or "")
         dedupe_keys = {key for key in (translated_key, original_key) if key}
@@ -249,51 +385,45 @@ def fetch_recent_issues(
     conn.row_factory = sqlite3.Row
     try:
         ensure_seen_items_schema(conn)
+        existing_columns = get_seen_items_columns(conn)
+        seen_items_select_sql = build_seen_items_select_sql(existing_columns)
         requested_limit = max(1, limit)
         fallback_target = max(1, fallback_min_count)
         candidate_limit = min(max(requested_limit, fallback_target) * 6, 500)
 
-        recent_rows = conn.execute(
-            """
-            SELECT item_id, source, title, body, translated_title, translated_body, url, published_at, created_at
-            FROM seen_items
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
-            (candidate_limit,),
-        ).fetchall()
+        recent_rows = conn.execute(seen_items_select_sql, (candidate_limit,)).fetchall()
         recent_issues = [
             issue
-            for issue in _collect_issue_rows(conn, recent_rows, allow_live_translate=False)
+            for issue in _collect_issue_rows(recent_rows)
             if issue["issue_time_unix"] >= int(cutoff.timestamp())
         ]
 
         if len(recent_issues) >= fallback_target:
             return recent_issues[:requested_limit], "recent_window"
 
-        latest_rows = conn.execute(
-            """
-            SELECT item_id, source, title, body, translated_title, translated_body, url, published_at, created_at
-            FROM seen_items
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
-            (candidate_limit,),
-        ).fetchall()
-        latest_issues = _collect_issue_rows(conn, latest_rows, allow_live_translate=False)
-        return latest_issues[:fallback_target], "latest_fallback"
+        latest_rows = conn.execute(seen_items_select_sql, (candidate_limit,)).fetchall()
+        latest_issues = _collect_issue_rows(latest_rows)
+        return latest_issues[:requested_limit], "latest_fallback"
     finally:
         conn.close()
 
 
-def build_payload(window_minutes: int = DEFAULT_WINDOW_MINUTES, limit: int = DEFAULT_LIMIT) -> dict:
-    issues, selection_mode = fetch_recent_issues(window_minutes=window_minutes, limit=limit)
+def build_payload(
+    window_minutes: int = DEFAULT_WINDOW_MINUTES,
+    limit: int = DEFAULT_LIMIT,
+    fallback_min_count: int = DEFAULT_FALLBACK_MIN_COUNT,
+) -> dict:
+    issues, selection_mode = fetch_recent_issues(
+        window_minutes=window_minutes,
+        limit=limit,
+        fallback_min_count=fallback_min_count,
+    )
     newest_issue_id = issues[0]["item_id"] if issues else None
     newest_created_at = issues[0]["created_at"] if issues else None
     return {
         "window_minutes": window_minutes,
         "limit": limit,
-        "fallback_min_count": DEFAULT_FALLBACK_MIN_COUNT,
+        "fallback_min_count": fallback_min_count,
         "selection_mode": selection_mode,
         "count": len(issues),
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -305,62 +435,171 @@ def build_payload(window_minutes: int = DEFAULT_WINDOW_MINUTES, limit: int = DEF
 
 class DashboardHandler(BaseHTTPRequestHandler):
     server_version = "TrumpMonitorDashboard/1.0"
+    sys_version = ""
 
-    def do_GET(self) -> None:
+    def setup(self) -> None:
+        super().setup()
+        try:
+            self.connection.settimeout(SOCKET_TIMEOUT_SECONDS)
+        except OSError:
+            pass
+
+    def do_HEAD(self) -> None:
+        self.do_GET(head_only=True)
+
+    def do_POST(self) -> None:
+        self.send_error(HTTPStatus.METHOD_NOT_ALLOWED, "Method not allowed")
+
+    def do_PUT(self) -> None:
+        self.send_error(HTTPStatus.METHOD_NOT_ALLOWED, "Method not allowed")
+
+    def do_DELETE(self) -> None:
+        self.send_error(HTTPStatus.METHOD_NOT_ALLOWED, "Method not allowed")
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self.send_header("Allow", "GET, HEAD")
+        self.end_headers()
+
+    def do_GET(self, head_only: bool = False) -> None:
+        client_ip = self.client_address[0] if self.client_address else "unknown"
         parsed = urlparse(self.path)
+        if len(parsed.path or "") > MAX_PATH_LENGTH or len(parsed.query or "") > MAX_QUERY_LENGTH:
+            self.send_error(HTTPStatus.REQUEST_URI_TOO_LONG, "Request too long")
+            return
+        if len(parse_qs(parsed.query, keep_blank_values=True)) > MAX_QUERY_PARAMS:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Too many query parameters")
+            return
+        if not is_allowed_client_ip(client_ip):
+            self.send_error(HTTPStatus.FORBIDDEN, "Client IP not allowed")
+            return
+        if not is_valid_host_header(self.headers.get("Host", ""), self.server):
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid host header")
+            return
+
+        allowed, retry_after = check_rate_limit(client_ip, parsed.path or "")
+        if not allowed:
+            self.send_json(
+                {
+                    "ok": False,
+                    "error": "rate_limited",
+                    "retry_after_seconds": retry_after,
+                },
+                status=HTTPStatus.TOO_MANY_REQUESTS,
+                extra_headers={"Retry-After": str(retry_after or RATE_LIMIT_BLOCK_SECONDS)},
+                head_only=head_only,
+            )
+            return
+
         if parsed.path in {"/", "/index.html"}:
-            self.serve_dashboard_html()
+            self.serve_dashboard_html(head_only=head_only)
             return
 
         if parsed.path == "/api/issues":
-            self.serve_issues_api(parsed.query)
+            self.serve_issues_api(parsed.query, head_only=head_only)
             return
 
         if parsed.path == "/api/health":
-            self.send_json({"ok": True, "db_path": DB_PATH})
+            self.send_json({"ok": True}, head_only=head_only)
             return
 
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
-    def serve_dashboard_html(self) -> None:
+    def add_security_headers(self) -> None:
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Content-Security-Policy", SECURITY_CSP)
+        self.send_header("Cache-Control", "no-store")
+
+    def end_headers(self) -> None:
+        self.add_security_headers()
+        super().end_headers()
+
+    def serve_dashboard_html(self, head_only: bool = False) -> None:
         html = DASHBOARD_HTML_PATH.read_text(encoding="utf-8")
         body = html.encode("utf-8")
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
         self.send_header("Last-Modified", formatdate(usegmt=True))
         self.end_headers()
-        self.wfile.write(body)
+        if not head_only:
+            self.safe_write(body)
 
-    def serve_issues_api(self, query: str) -> None:
+    def serve_issues_api(self, query: str, head_only: bool = False) -> None:
         params = parse_qs(query)
-        window_minutes = self.parse_int(params.get("minutes", [str(DEFAULT_WINDOW_MINUTES)])[0], DEFAULT_WINDOW_MINUTES)
-        limit = self.parse_int(params.get("limit", [str(DEFAULT_LIMIT)])[0], DEFAULT_LIMIT)
-        self.send_json(build_payload(window_minutes=window_minutes, limit=limit))
+        window_minutes = self.parse_int(
+            params.get("minutes", [str(DEFAULT_WINDOW_MINUTES)])[0],
+            DEFAULT_WINDOW_MINUTES,
+            max_value=MAX_WINDOW_MINUTES,
+        )
+        limit = self.parse_int(
+            params.get("limit", [str(DEFAULT_LIMIT)])[0],
+            DEFAULT_LIMIT,
+            max_value=DEFAULT_LIMIT,
+        )
+        fallback_min_count = self.parse_int(
+            params.get("fallback_min_count", [str(DEFAULT_FALLBACK_MIN_COUNT)])[0],
+            DEFAULT_FALLBACK_MIN_COUNT,
+            max_value=DEFAULT_LIMIT,
+        )
+        self.send_json(
+            build_payload(
+                window_minutes=window_minutes,
+                limit=limit,
+                fallback_min_count=fallback_min_count,
+            ),
+            head_only=head_only,
+        )
 
-    def send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
+    def send_json(
+        self,
+        payload: dict,
+        status: HTTPStatus = HTTPStatus.OK,
+        extra_headers: dict[str, str] | None = None,
+        head_only: bool = False,
+    ) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        if extra_headers:
+            for header_name, header_value in extra_headers.items():
+                self.send_header(header_name, header_value)
         self.end_headers()
-        self.wfile.write(body)
+        if not head_only:
+            self.safe_write(body)
+
+    def safe_write(self, body: bytes) -> None:
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, SocketTimeout):
+            return
 
     @staticmethod
-    def parse_int(value: str, default: int) -> int:
+    def parse_int(value: str, default: int, max_value: int | None = None) -> int:
         try:
-            return max(1, int(value))
+            parsed = max(1, int(value))
+            if max_value is not None:
+                parsed = min(parsed, max_value)
+            return parsed
         except (TypeError, ValueError):
             return default
 
     def log_message(self, format: str, *args) -> None:
         return
 
+    def log_error(self, format: str, *args) -> None:
+        return
+
 
 def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
     server = ThreadingHTTPServer((host, port), DashboardHandler)
+    server.daemon_threads = True
     print(f"[WEB] dashboard started http://{host}:{port}")
     try:
         server.serve_forever()

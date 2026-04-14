@@ -15,6 +15,7 @@ from config import (
 from db import StateDB
 from models import Item
 from notifier import TelegramNotifier, format_alert
+from publisher_ignore import load_ignored_news_publishers
 from sources.google_news import fetch_google_news_rss
 from sources.trusted_news import (
     fetch_trusted_feed_snapshot,
@@ -27,8 +28,11 @@ from sources.youtube_stt import enrich_item_with_stt_summary
 from query_settings import build_google_news_query_groups, load_query_targets
 from ui_settings import UISettings, load_ui_settings
 from utils import (
+    classify_priority_level,
     classify_trump_content,
+    compute_priority,
     is_within_recent_hours,
+    matches_news_query,
     match_exclude_keyword,
     parse_dt,
 )
@@ -94,6 +98,12 @@ def collect_items(db: StateDB, settings: UISettings, log: LogFn = default_log) -
     trusted_snapshot_entries: list[dict[str, str]] = []
     trusted_succeeded_publishers: set[str] = set()
     trusted_failed_publishers: set[str] = set()
+    ignored_publishers = set(load_ignored_news_publishers())
+    if ignored_publishers:
+        log(
+            f"[NEWS][IGNORE] 사용자 무시 매체 로드 "
+            f"count={len(ignored_publishers)} publishers={sorted(ignored_publishers)}"
+        )
     try:
         trusted_snapshot_entries, trusted_succeeded_publishers, trusted_failed_publishers = fetch_trusted_feed_snapshot()
         log(
@@ -119,7 +129,7 @@ def collect_items(db: StateDB, settings: UISettings, log: LogFn = default_log) -
             group_rows, google_stats = fetch_google_news_rss(
                 group_query,
                 recent_hours=settings.recent_hours if settings.use_recent_hours_filter else None,
-                excluded_publishers=sorted(trusted_succeeded_publishers),
+                excluded_publishers=sorted(trusted_succeeded_publishers | ignored_publishers),
                 source_label=group_label,
             )
         except Exception as e:
@@ -134,18 +144,14 @@ def collect_items(db: StateDB, settings: UISettings, log: LogFn = default_log) -
             }
 
         for row in group_rows:
-            row_text = " ".join(
-                part for part in (
+            for query in group_queries:
+                if matches_news_query(
+                    query,
                     row.title,
                     row.body,
                     row.translated_title,
                     row.translated_body,
-                )
-                if part
-            ).lower()
-            for query in group_queries:
-                query_terms = [term for term in query.lower().split() if term]
-                if query_terms and all(term in row_text for term in query_terms):
+                ):
                     google_rows_by_query[query].append(row)
 
         log(
@@ -229,6 +235,11 @@ async def monitor_loop(
                         continue
 
                     item = enrich_item_with_stt_summary(item, ai_client)
+                    item.priority_score = compute_priority(
+                        " ".join(part for part in (item.title, item.translated_title) if part),
+                        " ".join(part for part in (item.body, item.translated_body) if part),
+                    )
+                    item.priority_level = classify_priority_level(item.priority_score)
                     display_title = item.translated_title or item.title
                     matched_exclude_keyword = match_exclude_keyword(
                         settings.exclude_keywords,

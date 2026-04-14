@@ -11,6 +11,7 @@ class Item:
     published_at: Optional[str]
     item_id: str
     priority_score: int = 0
+    priority_level: str = "normal"
     summary: str = ""
     is_iran_war_related: bool = False
     translated_title: str = ""

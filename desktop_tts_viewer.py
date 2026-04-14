@@ -8,7 +8,9 @@ import threading
 import time
 import unicodedata
 import uuid
+import wave
 import winsound
+import audioop
 from ctypes import wintypes, windll
 from pathlib import Path
 from tkinter import messagebox
@@ -26,6 +28,7 @@ APP_POLL_SECONDS = 5
 MELOTTS_WINDOWS_ENV = "melotts-win"
 DEFAULT_MELO_SPEED = 1.0
 DEFAULT_LEADING_SILENCE_MS = 420
+DEFAULT_TTS_VOLUME = 1.0
 WAV_CACHE_MAX_AGE_SECONDS = 60 * 60
 DEBUG_LOG_RETENTION_DAYS = 7
 WORKER_READY_TIMEOUT_SECONDS = 180
@@ -228,6 +231,7 @@ def load_settings() -> dict:
         return {
             "speed": DEFAULT_MELO_SPEED,
             "leading_silence_ms": DEFAULT_LEADING_SILENCE_MS,
+            "volume": DEFAULT_TTS_VOLUME,
         }
     try:
         data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
@@ -236,6 +240,7 @@ def load_settings() -> dict:
     return {
         "speed": float(data.get("speed") or DEFAULT_MELO_SPEED),
         "leading_silence_ms": int(data.get("leading_silence_ms") or DEFAULT_LEADING_SILENCE_MS),
+        "volume": float(data.get("volume") or DEFAULT_TTS_VOLUME),
     }
 
 
@@ -341,6 +346,21 @@ def play_wav_file(path: Path) -> None:
         errors.append(f"powershell={detail}")
         debug_log(f"play_wav_file powershell failed: {detail}")
         raise RuntimeError("오디오 재생 실패: " + " | ".join(errors)) from error
+
+
+def build_volume_adjusted_wav(source_path: Path, output_path: Path, volume: float) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(source_path), "rb") as source_wav:
+        params = source_wav.getparams()
+        frames = source_wav.readframes(source_wav.getnframes())
+
+    adjusted_frames = audioop.mul(frames, params.sampwidth, max(0.0, volume))
+
+    with wave.open(str(output_path), "wb") as output_wav:
+        output_wav.setparams(params)
+        output_wav.writeframes(adjusted_frames)
+
+    return output_path
 
 
 class DashboardTTSViewer:
@@ -680,7 +700,11 @@ class DashboardTTSViewer:
                 safe_print(f"[APP] wav 삭제 실패: {wav_path.name} / {error}")
 
     def settings_summary(self) -> str:
-        return f"속도 {self.settings['speed']:.2f}, 시작 여유 {self.settings['leading_silence_ms']}ms"
+        return (
+            f"속도 {self.settings['speed']:.2f}, "
+            f"시작 여유 {self.settings['leading_silence_ms']}ms, "
+            f"음량 {int(round(self.settings['volume'] * 100))}%"
+        )
 
     def update_speed(self, speed: float, label: str) -> None:
         self.settings["speed"] = speed
@@ -692,6 +716,11 @@ class DashboardTTSViewer:
         save_settings(self.settings)
         self.set_status(f"시작 여유 변경: {label} ({self.settings_summary()})")
 
+    def update_volume(self, volume: float, label: str) -> None:
+        self.settings["volume"] = volume
+        save_settings(self.settings)
+        self.set_status(f"읽기 음량 변경: {label} ({self.settings_summary()})")
+
     def show_current_settings(self) -> None:
         self.set_status(f"현재 TTS 설정: {self.settings_summary()}")
 
@@ -700,6 +729,7 @@ class DashboardTTSViewer:
         settings_key = f"{cache_key}_s{str(self.settings['speed']).replace('.', '_')}_p{self.settings['leading_silence_ms']}"
         cache_path = self.get_cache_path(settings_key)
         playback_path = cache_path
+        source_path_for_cleanup = cache_path
         if not cache_path.exists():
             self.ensure_worker()
             if not self.worker_process or not self.worker_process.stdin:
@@ -751,10 +781,20 @@ class DashboardTTSViewer:
                 time.sleep(WORKER_RESULT_POLL_INTERVAL_SECONDS)
             if not playback_path.exists():
                 raise RuntimeError(f"합성 완료 응답 후 wav 파일이 없습니다: {playback_path}")
+            source_path_for_cleanup = playback_path
+
+        volume = float(self.settings.get("volume", DEFAULT_TTS_VOLUME))
+        if abs(volume - 1.0) > 0.001:
+            volume_percent = int(round(volume * 100))
+            adjusted_path = self.get_cache_path(f"{settings_key}_v{volume_percent}")
+            if not adjusted_path.exists():
+                build_volume_adjusted_wav(playback_path, adjusted_path, volume)
+            playback_path = adjusted_path
+
         play_wav_file(playback_path)
-        if playback_path != cache_path:
+        if source_path_for_cleanup != cache_path:
             try:
-                playback_path.unlink(missing_ok=True)
+                source_path_for_cleanup.unlink(missing_ok=True)
             except Exception:
                 pass
 
@@ -844,6 +884,15 @@ class DashboardTTSViewer:
                             MenuAction("짧게 (300ms)", lambda: self.update_leading_silence(300, "짧게")),
                             MenuAction("보통 (420ms)", lambda: self.update_leading_silence(420, "보통")),
                             MenuAction("길게 (600ms)", lambda: self.update_leading_silence(600, "길게")),
+                        ],
+                    ),
+                    Menu(
+                        "읽기 음량",
+                        [
+                            MenuAction("작게 (70%)", lambda: self.update_volume(0.70, "작게")),
+                            MenuAction("보통 (100%)", lambda: self.update_volume(1.00, "보통")),
+                            MenuAction("크게 (130%)", lambda: self.update_volume(1.30, "크게")),
+                            MenuAction("아주 크게 (160%)", lambda: self.update_volume(1.60, "아주 크게")),
                         ],
                     ),
                     MenuAction("현재 설정 보기", self.show_current_settings),

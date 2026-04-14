@@ -2,7 +2,12 @@ import sqlite3
 from datetime import datetime, timezone
 
 from models import Item
-from utils import normalize_title_for_dedupe, title_similarity
+from utils import (
+    classify_priority_level,
+    compute_priority,
+    normalize_title_for_dedupe,
+    title_similarity,
+)
 
 
 class StateDB:
@@ -36,6 +41,8 @@ class StateDB:
             ("translated_title", "TEXT"),
             ("translated_body", "TEXT"),
             ("published_at", "TEXT"),
+            ("priority_score", "INTEGER NOT NULL DEFAULT 0"),
+            ("priority_level", "TEXT NOT NULL DEFAULT 'normal'"),
             ("normalized_title", "TEXT"),
             ("topic_tag", "TEXT"),
             ("duplicate_count", "INTEGER NOT NULL DEFAULT 0"),
@@ -43,6 +50,17 @@ class StateDB:
         ):
             if column_name not in existing_columns:
                 cur.execute(f"ALTER TABLE seen_items ADD COLUMN {column_name} {column_type}")
+        cur.execute(
+            """
+            UPDATE seen_items
+            SET priority_level = CASE
+                WHEN COALESCE(priority_score, 0) >= 12 THEN 'urgent'
+                WHEN COALESCE(priority_score, 0) >= 6 THEN 'important'
+                ELSE 'normal'
+            END
+            WHERE priority_level IS NULL OR priority_level = ''
+            """
+        )
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS kv (
@@ -60,7 +78,37 @@ class StateDB:
             )
             """
         )
+        self._backfill_priority_fields(cur)
         self.conn.commit()
+
+    def _backfill_priority_fields(self, cur: sqlite3.Cursor) -> None:
+        cur.execute(
+            """
+            SELECT item_id, title, body, translated_title, translated_body, priority_score, priority_level
+            FROM seen_items
+            WHERE COALESCE(priority_score, 0) = 0
+               OR priority_level IS NULL
+               OR priority_level = ''
+            """
+        )
+        pending_rows = cur.fetchall()
+        if not pending_rows:
+            return
+
+        for item_id, title, body, translated_title, translated_body, priority_score, priority_level in pending_rows:
+            merged_title = " ".join(part for part in ((title or "").strip(), (translated_title or "").strip()) if part)
+            merged_body = " ".join(part for part in ((body or "").strip(), (translated_body or "").strip()) if part)
+            recomputed_score = compute_priority(merged_title, merged_body)
+            recomputed_level = classify_priority_level(recomputed_score)
+            cur.execute(
+                """
+                UPDATE seen_items
+                SET priority_score = ?,
+                    priority_level = ?
+                WHERE item_id = ?
+                """,
+                (recomputed_score, recomputed_level, item_id),
+            )
 
     def has_seen(self, item_id: str) -> bool:
         cur = self.conn.cursor()
@@ -79,9 +127,9 @@ class StateDB:
             """
             INSERT OR IGNORE INTO seen_items(
                 item_id, source, title, body, translated_title, translated_body, url, published_at, created_at,
-                normalized_title, topic_tag, duplicate_count, last_duplicate_at
+                priority_score, priority_level, normalized_title, topic_tag, duplicate_count, last_duplicate_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 item.item_id,
@@ -93,6 +141,8 @@ class StateDB:
                 item.url,
                 item.published_at,
                 datetime.now(timezone.utc).isoformat(),
+                int(item.priority_score or 0),
+                str(item.priority_level or "normal"),
                 normalized_title,
                 topic_tag,
                 0,
