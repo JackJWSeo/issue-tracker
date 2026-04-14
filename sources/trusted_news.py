@@ -8,7 +8,7 @@ import requests
 
 from config import REQUEST_TIMEOUT
 from models import Item
-from utils import compute_priority, is_within_recent_hours, matches_news_query, parse_dt, sha1
+from utils import compute_priority, is_question_headline, is_within_recent_hours, matches_news_query, parse_dt, sha1
 
 
 REQUEST_HEADERS = {
@@ -261,6 +261,8 @@ def fetch_trusted_news_articles_from_snapshot(
 
         if not link or not _matches_query(query, title, body):
             continue
+        if is_question_headline(title):
+            continue
 
         original_published_at = fetch_original_published_at(link)
         effective_published_at = original_published_at or published_at
@@ -308,6 +310,8 @@ def fetch_trusted_news_articles_grouped_from_snapshot(
         outlet_name = entry["source_label"]
 
         if not link:
+            continue
+        if is_question_headline(title):
             continue
 
         original_published_at = fetch_original_published_at(link)

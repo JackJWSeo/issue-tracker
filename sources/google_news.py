@@ -11,7 +11,7 @@ import requests
 from config import REQUEST_TIMEOUT
 from models import Item
 from query_settings import get_query_setting_list
-from utils import compute_priority, is_within_recent_hours, parse_dt, sha1
+from utils import compute_priority, is_question_headline, is_within_recent_hours, parse_dt, sha1
 
 
 REQUEST_HEADERS = {
@@ -255,6 +255,9 @@ def fetch_google_news_rss(
         link = (node.findtext("link") or "").strip()
         pub_date = (node.findtext("pubDate") or "").strip()
         guid = (node.findtext("guid") or link or title).strip()
+
+        if is_question_headline(title):
+            continue
 
         if _is_trusted_publisher_item(title, description, link, excluded_publishers=excluded_publishers):
             stats["publisher_filtered"] += 1

@@ -21,6 +21,44 @@ def parse_keyword_csv(value: str) -> list[str]:
     return [part.strip().lower() for part in (value or "").split(",") if part.strip()]
 
 
+def is_question_headline(title: str) -> bool:
+    normalized_title = normalize_text(title)
+    if "?" in normalized_title:
+        return True
+
+    english_question_starts = (
+        "would ",
+        "could ",
+        "should ",
+        "will ",
+        "is ",
+        "are ",
+        "how ",
+        "what ",
+        "why ",
+        "can ",
+        "do ",
+        "does ",
+        "did ",
+        "may ",
+        "might ",
+    )
+    if normalized_title.startswith(english_question_starts):
+        return True
+
+    korean_question_markers = (
+        "어떻게",
+        "왜",
+        "무엇",
+        "뭘",
+        "인가",
+        "일까",
+        "되나",
+        "가능할까",
+    )
+    return any(marker in normalized_title for marker in korean_question_markers)
+
+
 def compute_priority(title: str, body: str) -> int:
     normalized_title = normalize_text(title)
     text = normalize_text(title, body)
@@ -138,36 +176,7 @@ def compute_priority(title: str, body: str) -> int:
     if any(k in text for k in ["speech", "remarks", "address", "rally", "press conference"]):
         score += 1
 
-    question_title_markers = [
-        "?",
-        "would ",
-        "could ",
-        "should ",
-        "will ",
-        "is ",
-        "are ",
-        "how ",
-        "what ",
-        "why ",
-        "can ",
-        "do ",
-        "does ",
-        "did ",
-        "may ",
-        "might ",
-        "어떻게",
-        "왜",
-        "무엇",
-        "뭘",
-        "인가",
-        "일까",
-        "일까?",
-        "일까.",
-        "일까 -",
-        "되나",
-        "가능할까",
-    ]
-    if any(marker in normalized_title for marker in question_title_markers):
+    if is_question_headline(normalized_title):
         score -= 4
 
     if high_priority_matches >= 3:
