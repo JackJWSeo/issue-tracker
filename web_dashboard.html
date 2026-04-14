@@ -328,18 +328,6 @@
         inset 0 1px 0 rgba(255, 255, 255, 0.85);
     }
 
-    .issue-card.priority-urgent {
-      border-color: rgba(211, 63, 73, 0.42);
-      box-shadow:
-        0 24px 56px rgba(211, 63, 73, 0.18),
-        0 10px 22px rgba(18, 39, 61, 0.10),
-        inset 0 1px 0 rgba(255, 255, 255, 0.9);
-    }
-
-    .issue-card.priority-important {
-      border-color: rgba(217, 119, 6, 0.26);
-    }
-
     .issue-card:hover {
       transform: translateY(-4px);
       box-shadow:
@@ -378,46 +366,19 @@
       margin-top: -4px;
     }
 
-    .priority-badge {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 7px 10px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 800;
-      letter-spacing: -0.01em;
-      border: 1px solid transparent;
-      white-space: nowrap;
-    }
-
-    .priority-badge.priority-urgent {
-      background: var(--danger-soft);
-      color: var(--danger);
-      border-color: rgba(211, 63, 73, 0.18);
-    }
-
-    .priority-badge.priority-important {
-      background: var(--warning-soft);
-      color: var(--warning);
-      border-color: rgba(217, 119, 6, 0.18);
-    }
-
-    .priority-badge.priority-normal {
-      background: var(--success-soft);
-      color: var(--muted-strong);
-      border-color: rgba(63, 79, 97, 0.10);
-    }
-
     .source-pill {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 6px;
-      padding: 8px 12px;
+      padding: 9px 16px;
+      min-height: 40px;
       border-radius: 999px;
       background: linear-gradient(180deg, var(--pill-bg-top), var(--pill-bg-bottom));
       color: var(--pill-text);
+      font-size: 14px;
       font-weight: 700;
+      line-height: 1;
       letter-spacing: -0.01em;
       max-width: 100%;
       white-space: nowrap;
@@ -426,7 +387,7 @@
       text-decoration: none;
       border: 1px solid var(--pill-border);
       transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, color 0.18s ease;
-      margin-left: -12px;
+      margin-left: -6px;
       margin-top: -4px;
     }
 
@@ -572,10 +533,6 @@
           <div class="label" id="issueCountLabel">표시 중 이슈 수</div>
           <div class="value" id="issueCount">0</div>
         </div>
-        <div class="stat">
-          <div class="label">긴급 카드 수</div>
-          <div class="value" id="urgentIssueCount">0</div>
-        </div>
       </section>
       <section class="control-panel">
         <strong>알림 설정</strong>
@@ -634,7 +591,6 @@
     const issuesEl = document.getElementById("issues");
     const issueCountEl = document.getElementById("issueCount");
     const issueCountLabelEl = document.getElementById("issueCountLabel");
-    const urgentIssueCountEl = document.getElementById("urgentIssueCount");
     const soundToggleEl = document.getElementById("soundToggle");
     const refreshSecondsInputEl = document.getElementById("refreshSecondsInput");
     const filterTrustedNewsEl = document.getElementById("filterTrustedNews");
@@ -801,9 +757,7 @@
 
     function updateIssueSummary(data, displayedCount, totalCount) {
       const isFallback = data.selection_mode === "latest_fallback";
-      const urgentCount = (data.issues || []).filter((issue) => issue.priority_level === "urgent" && isVisibleByFilter(issue)).length;
       issueCountLabelEl.textContent = isFallback ? "최신 기준 표시 수" : "최근 1시간 표시 수";
-      urgentIssueCountEl.textContent = String(urgentCount);
       issueCountEl.textContent = `${displayedCount}/${totalCount}`;
     }
 
@@ -833,14 +787,11 @@
         const safeIssueTimestamp = escapeHtml(formatDate(issueTimestamp));
         const safeIssueTimestampLabel = escapeHtml(issueTimestampLabel);
         const safeItemId = escapeHtml(issue.item_id);
-        const safePriorityLabel = escapeHtml(issue.priority_label || "일반");
-        const priorityClass = escapeHtml(`priority-${issue.priority_level || "normal"}`);
         return `
-          <article class="issue-card ${sourceCardClass} ${priorityClass} ${isNew ? "is-new" : ""}" data-item-id="${safeItemId}">
+          <article class="issue-card ${sourceCardClass} ${isNew ? "is-new" : ""}" data-item-id="${safeItemId}">
             <div class="issue-meta">
               <div class="issue-meta-left">
                 <a class="source-pill" href="${safeUrl}" target="_blank" rel="noreferrer">출처 · ${safeSource}</a>
-                <span class="priority-badge ${priorityClass}">${safePriorityLabel}</span>
               </div>
               <div class="issue-saved-at">${safeIssueTimestampLabel} ${safeIssueTimestamp}</div>
             </div>
