@@ -1,8 +1,8 @@
 @echo off
 setlocal
 
-set "PROJECT_DIR=%~dp0"
-set "MELO_REPO=%PROJECT_DIR%MeloTTS-Windows"
+for %%I in ("%~dp0..") do set "PROJECT_DIR=%%~fI"
+set "MELO_REPO=%PROJECT_DIR%\MeloTTS-Windows"
 set "ENV_NAME=melotts-win"
 
 where conda >nul 2>nul

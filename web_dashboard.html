@@ -547,22 +547,6 @@
             <input type="number" id="refreshSecondsInput" min="3" step="1" value="10">
           </div>
           <div class="control-card">
-            <strong>기본 표시 개수</strong>
-            <div style="color: var(--muted); font-size: 14px;">10개부터 100개까지 선택하고, 아래로 내리면 10개씩 더 표시합니다.</div>
-            <select id="displayCountSelect">
-              <option value="10" selected>10개</option>
-              <option value="20">20개</option>
-              <option value="30">30개</option>
-              <option value="40">40개</option>
-              <option value="50">50개</option>
-              <option value="60">60개</option>
-              <option value="70">70개</option>
-              <option value="80">80개</option>
-              <option value="90">90개</option>
-              <option value="100">100개</option>
-            </select>
-          </div>
-          <div class="control-card">
             <strong>콘텐츠 종류 필터</strong>
             <div class="filter-list">
               <label><input type="checkbox" id="filterTrustedNews" checked> 주요 언론 기사</label>
@@ -584,8 +568,8 @@
   </main>
 
   <script>
-    const DEFAULT_WINDOW_MINUTES = 60;
     const MAX_FETCH_LIMIT = 100;
+    const INITIAL_VISIBLE_ISSUES = 10;
     const LOAD_MORE_STEP = 10;
 
     const issuesEl = document.getElementById("issues");
@@ -598,7 +582,6 @@
     const filterTruthSocialEl = document.getElementById("filterTruthSocial");
     const filterXEl = document.getElementById("filterX");
     const filterYoutubeEl = document.getElementById("filterYoutube");
-    const displayCountSelectEl = document.getElementById("displayCountSelect");
     const sidebarEl = document.getElementById("sidebar");
     const sidebarToggleEl = document.getElementById("sidebarToggle");
     const sidebarToggleLabelEl = document.getElementById("sidebarToggleLabel");
@@ -609,8 +592,8 @@
     let hasLoadedOnce = false;
     let refreshTimer = null;
     let lastRenderedSignature = "";
-    let latestIssues = { issues: [], selection_mode: "recent_window", window_minutes: 60, fallback_min_count: 10 };
-    let visibleIssueCount = 10;
+    let latestIssues = { issues: [], limit: MAX_FETCH_LIMIT, count: 0 };
+    let visibleIssueCount = INITIAL_VISIBLE_ISSUES;
     let loadMoreObserver = null;
 
     function formatDate(value) {
@@ -728,22 +711,13 @@
       return true;
     }
 
-    function getBaseDisplayCount() {
-      const value = Number.parseInt(displayCountSelectEl.value || "10", 10);
-      return Math.min(MAX_FETCH_LIMIT, Math.max(10, Number.isNaN(value) ? 10 : value));
-    }
-
     function getApiUrl() {
-      const params = new URLSearchParams({
-        minutes: String(DEFAULT_WINDOW_MINUTES),
-        limit: String(MAX_FETCH_LIMIT),
-        fallback_min_count: String(getBaseDisplayCount()),
-      });
+      const params = new URLSearchParams({ limit: String(MAX_FETCH_LIMIT) });
       return `/api/issues?${params.toString()}`;
     }
 
     function ensureVisibleIssueCount() {
-      visibleIssueCount = Math.max(visibleIssueCount, getBaseDisplayCount());
+      visibleIssueCount = Math.max(visibleIssueCount, INITIAL_VISIBLE_ISSUES);
     }
 
     function loadMoreIssues() {
@@ -756,8 +730,7 @@
     }
 
     function updateIssueSummary(data, displayedCount, totalCount) {
-      const isFallback = data.selection_mode === "latest_fallback";
-      issueCountLabelEl.textContent = isFallback ? "최신 기준 표시 수" : "최근 1시간 표시 수";
+      issueCountLabelEl.textContent = "최신 100개 표시 수";
       issueCountEl.textContent = `${displayedCount}/${totalCount}`;
     }
 
@@ -827,7 +800,6 @@
         const ids = new Set(data.issues.map((issue) => issue.item_id));
         const newIds = new Set();
         const renderSignature = JSON.stringify({
-          fallback_min_count: data.fallback_min_count,
           issues: data.issues.map((issue) => [issue.item_id, issue.created_at]),
         });
 
@@ -896,13 +868,6 @@
       element.addEventListener("change", () => {
         renderIssues(latestIssues, new Set());
       });
-    });
-
-    displayCountSelectEl.addEventListener("change", () => {
-      visibleIssueCount = getBaseDisplayCount();
-      hasLoadedOnce = false;
-      lastRenderedSignature = "";
-      refreshIssues();
     });
 
     sidebarToggleEl.addEventListener("click", () => {

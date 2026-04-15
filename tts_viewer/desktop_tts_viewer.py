@@ -12,15 +12,22 @@ import wave
 import winsound
 import audioop
 from ctypes import wintypes, windll
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tkinter import messagebox
+
+if not getattr(sys, "frozen", False):
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
 
 import requests
 import webview
 from webview.menu import Menu, MenuAction
 
 from config import APP_BASE_DIR, RESOURCE_DIR
-from web_dashboard import DEFAULT_PORT, DEFAULT_WINDOW_MINUTES, run_server
+from utils import parse_dt
+from dashboard_server import DEFAULT_PORT, run_server
 
 
 APP_HOST = "192.168.2.11"
@@ -31,17 +38,23 @@ DEFAULT_LEADING_SILENCE_MS = 420
 DEFAULT_TTS_VOLUME = 1.0
 WAV_CACHE_MAX_AGE_SECONDS = 60 * 60
 DEBUG_LOG_RETENTION_DAYS = 7
+STALE_NEWS_MAX_AGE_MINUTES = 30
 WORKER_READY_TIMEOUT_SECONDS = 180
 WORKER_COMMAND_TIMEOUT_SECONDS = 180
 WORKER_RESULT_POLL_INTERVAL_SECONDS = 0.2
 WORKER_OUTPUT_WAIT_SECONDS = 8
-CACHE_DIR = APP_BASE_DIR / "tts_cache"
+TTS_VIEWER_DIR = APP_BASE_DIR if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+CACHE_DIR = TTS_VIEWER_DIR / "tts_cache"
 WEBVIEW_STORAGE_DIR = Path.home() / "AppData" / "Local" / "IssueTrackerWebView"
-WORKER_SCRIPT_PATH = RESOURCE_DIR / "melotts_windows_worker.py"
-SETTINGS_PATH = APP_BASE_DIR / "tts_viewer_settings.json"
-MELOTTS_INSTALL_SCRIPT_PATH = APP_BASE_DIR / "install_melotts_runtime.bat"
-DEBUG_LOG_DIR = APP_BASE_DIR / "logs"
-BLOCKED_CHARS_PATH = APP_BASE_DIR / "tts_blocked_chars.txt"
+WORKER_SCRIPT_PATH = (
+    RESOURCE_DIR / "melotts_windows_worker.py"
+    if getattr(sys, "frozen", False)
+    else TTS_VIEWER_DIR / "melotts_windows_worker.py"
+)
+SETTINGS_PATH = TTS_VIEWER_DIR / "tts_viewer_settings.json"
+MELOTTS_INSTALL_SCRIPT_PATH = TTS_VIEWER_DIR / "install_melotts_runtime.bat"
+DEBUG_LOG_DIR = TTS_VIEWER_DIR / "logs"
+BLOCKED_CHARS_PATH = TTS_VIEWER_DIR / "tts_blocked_chars.txt"
 PROXY_ENV_KEYS = [
     "HTTP_PROXY",
     "HTTPS_PROXY",
@@ -366,7 +379,7 @@ def build_volume_adjusted_wav(source_path: Path, output_path: Path, volume: floa
 class DashboardTTSViewer:
     def __init__(self) -> None:
         self.base_url = f"http://{APP_HOST}:{DEFAULT_PORT}"
-        self.api_url = f"{self.base_url}/api/issues?minutes={DEFAULT_WINDOW_MINUTES}&limit=100"
+        self.api_url = f"{self.base_url}/api/issues?limit=100"
         self.web_url = f"{self.base_url}/"
         self.stop_event = threading.Event()
         self.server_thread: threading.Thread | None = None
@@ -557,7 +570,16 @@ class DashboardTTSViewer:
                 else:
                     new_items = [issue for issue in reversed(issues) if issue.get("item_id") not in self.seen_ids]
                     if new_items:
-                        self.replace_queue_with_latest(new_items[-1])
+                        latest_issue = new_items[-1]
+                        if self.should_skip_stale_issue_for_tts(latest_issue):
+                            title = clean_title_for_tts(
+                                latest_issue.get("translated_title") or latest_issue.get("title") or ""
+                            )
+                            self.set_status(
+                                f"30분 지난 기사라 자동 읽기 건너뜀: {title or '제목 없음'}"
+                            )
+                        else:
+                            self.replace_queue_with_latest(latest_issue)
                     self.seen_ids.update(ids)
             except requests.RequestException as error:
                 safe_print(f"[APP] poll error: {error}")
@@ -609,6 +631,24 @@ class DashboardTTSViewer:
         text = sanitize_tts_text(value, self.blocked_chars)
         text = clean_title_for_tts(text)
         return sanitize_tts_text(text, self.blocked_chars)
+
+    def parse_issue_published_at(self, issue: dict) -> datetime | None:
+        published_at = str(issue.get("published_at") or "").strip()
+        if not published_at:
+            return None
+        parsed = parse_dt(published_at)
+        if parsed is None:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def should_skip_stale_issue_for_tts(self, issue: dict) -> bool:
+        published_dt = self.parse_issue_published_at(issue)
+        if published_dt is None:
+            return False
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=STALE_NEWS_MAX_AGE_MINUTES)
+        return published_dt < cutoff
 
     def register_problem_characters(self, error: Exception) -> bool:
         added = False

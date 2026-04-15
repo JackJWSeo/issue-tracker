@@ -2,10 +2,10 @@
 
 
 a = Analysis(
-    ['desktop_tts_viewer.py'],
-    pathex=[],
+    ['tts_viewer/desktop_tts_viewer.py'],
+    pathex=['.'],
     binaries=[],
-    datas=[('web_dashboard.html', '.'), ('melotts_windows_worker.py', '.')],
+    datas=[('web_dashboard.html', '.'), ('tts_viewer/melotts_windows_worker.py', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

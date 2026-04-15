@@ -1,25 +1,30 @@
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parent
-ASSETS_DIR = ROOT / "assets"
+PROJECT_ROOT = ROOT.parent
 GENERATED_DIR = ROOT / "build" / "generated"
-PNG_PATH = ASSETS_DIR / "tts_viewer_icon.png"
+if not GENERATED_DIR.parent.exists():
+    GENERATED_DIR = PROJECT_ROOT / "build" / "generated"
+PNG_CANDIDATES = [
+    ROOT / "assets" / "tts_viewer_icon.png",
+    PROJECT_ROOT / "assets" / "tts_viewer_icon.png",
+]
+PNG_PATH = next((path for path in PNG_CANDIDATES if path.exists()), PNG_CANDIDATES[0])
 DEFAULT_ICO_PATH = GENERATED_DIR / "tts_viewer_icon.ico"
 SIZE = 512
 PADDING_RATIO = 0.04
 
 
 def build_icon(output_path: Path | None = None) -> None:
-    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    GENERATED_DIR.mkdir(parents=True, exist_ok=True)
     if not PNG_PATH.exists():
         raise FileNotFoundError(f"아이콘 PNG를 찾을 수 없습니다: {PNG_PATH}")
 
     ico_path = output_path or DEFAULT_ICO_PATH
+    ico_path.parent.mkdir(parents=True, exist_ok=True)
 
     source = Image.open(PNG_PATH).convert("RGBA")
     bbox = source.getbbox()
