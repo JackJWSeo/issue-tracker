@@ -3,12 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>Trump Monitor Dashboard</title>
   <style>
     :root {
       --bg: #eef3f8;
       --panel: rgba(255, 255, 255, 0.9);
       --panel-strong: #ffffff;
+      --panel-soft: rgba(255, 255, 255, 0.86);
+      --surface: rgba(255, 255, 255, 0.98);
+      --surface-strong: #ffffff;
+      --surface-muted: rgba(255, 255, 255, 0.8);
+      --input-bg: #ffffff;
       --text: #16202a;
       --muted: #5e6b78;
       --muted-strong: #3f4f61;
@@ -23,11 +29,167 @@
       --success: #3f4f61;
       --success-soft: #eef2f7;
       --shadow: 0 18px 60px rgba(18, 39, 61, 0.12);
+      --shadow-soft: 0 8px 24px rgba(18, 39, 61, 0.06);
+      --shadow-card:
+        0 18px 40px rgba(18, 39, 61, 0.14),
+        0 6px 18px rgba(18, 39, 61, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.85);
+      --shadow-card-hover:
+        0 24px 54px rgba(18, 39, 61, 0.18),
+        0 10px 22px rgba(18, 39, 61, 0.10),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
       --border: rgba(18, 39, 61, 0.08);
+      --border-strong: rgba(18, 39, 61, 0.14);
+      --divider: rgba(18, 39, 61, 0.08);
+      --body-glow-left: rgba(11, 107, 203, 0.14);
+      --body-glow-right: rgba(211, 63, 73, 0.10);
+      --body-gradient-top: #f7fafe;
+      --body-gradient-bottom: var(--bg);
+      --issue-highlight: rgba(255, 255, 255, 0.28);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #08111d;
+        --panel: rgba(13, 23, 38, 0.9);
+        --panel-strong: #111c2d;
+        --panel-soft: rgba(17, 28, 45, 0.92);
+        --surface: rgba(15, 26, 43, 0.98);
+        --surface-strong: #172338;
+        --surface-muted: rgba(17, 28, 45, 0.85);
+        --input-bg: #0d1726;
+        --text: #edf3fb;
+        --muted: #a8b7ca;
+        --muted-strong: #d6dfeb;
+        --accent: #72b6ff;
+        --accent-soft: rgba(114, 182, 255, 0.18);
+        --accent-deep: #b7d9ff;
+        --ring: rgba(114, 182, 255, 0.28);
+        --danger: #ff7b88;
+        --danger-soft: rgba(255, 123, 136, 0.16);
+        --warning: #ffb454;
+        --warning-soft: rgba(255, 180, 84, 0.16);
+        --success: #b6c7db;
+        --success-soft: rgba(182, 199, 219, 0.14);
+        --shadow: 0 18px 60px rgba(0, 0, 0, 0.42);
+        --shadow-soft: 0 8px 24px rgba(0, 0, 0, 0.28);
+        --shadow-card:
+          0 20px 48px rgba(0, 0, 0, 0.36),
+          0 8px 20px rgba(0, 0, 0, 0.24),
+          inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        --shadow-card-hover:
+          0 24px 56px rgba(0, 0, 0, 0.42),
+          0 10px 24px rgba(0, 0, 0, 0.28),
+          inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        --border: rgba(173, 191, 214, 0.14);
+        --border-strong: rgba(173, 191, 214, 0.22);
+        --divider: rgba(173, 191, 214, 0.14);
+        --body-glow-left: rgba(55, 130, 220, 0.22);
+        --body-glow-right: rgba(209, 72, 104, 0.14);
+        --body-gradient-top: #0c1625;
+        --body-gradient-bottom: var(--bg);
+        --issue-highlight: rgba(255, 255, 255, 0.04);
+      }
+    }
+
+    html[data-theme="light"] {
+      color-scheme: light;
+      --bg: #eef3f8;
+      --panel: rgba(255, 255, 255, 0.9);
+      --panel-strong: #ffffff;
+      --panel-soft: rgba(255, 255, 255, 0.86);
+      --surface: rgba(255, 255, 255, 0.98);
+      --surface-strong: #ffffff;
+      --surface-muted: rgba(255, 255, 255, 0.8);
+      --input-bg: #ffffff;
+      --text: #16202a;
+      --muted: #5e6b78;
+      --muted-strong: #3f4f61;
+      --accent: #0b6bcb;
+      --accent-soft: #d9ebff;
+      --accent-deep: #084f98;
+      --ring: rgba(11, 107, 203, 0.18);
+      --danger: #d33f49;
+      --danger-soft: #ffe3df;
+      --warning: #d97706;
+      --warning-soft: #fff0db;
+      --success: #3f4f61;
+      --success-soft: #eef2f7;
+      --shadow: 0 18px 60px rgba(18, 39, 61, 0.12);
+      --shadow-soft: 0 8px 24px rgba(18, 39, 61, 0.06);
+      --shadow-card:
+        0 18px 40px rgba(18, 39, 61, 0.14),
+        0 6px 18px rgba(18, 39, 61, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.85);
+      --shadow-card-hover:
+        0 24px 54px rgba(18, 39, 61, 0.18),
+        0 10px 22px rgba(18, 39, 61, 0.10),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      --border: rgba(18, 39, 61, 0.08);
+      --border-strong: rgba(18, 39, 61, 0.14);
+      --divider: rgba(18, 39, 61, 0.08);
+      --body-glow-left: rgba(11, 107, 203, 0.14);
+      --body-glow-right: rgba(211, 63, 73, 0.10);
+      --body-gradient-top: #f7fafe;
+      --body-gradient-bottom: var(--bg);
+      --issue-highlight: rgba(255, 255, 255, 0.28);
+    }
+
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #08111d;
+      --panel: rgba(13, 23, 38, 0.9);
+      --panel-strong: #111c2d;
+      --panel-soft: rgba(17, 28, 45, 0.92);
+      --surface: rgba(15, 26, 43, 0.98);
+      --surface-strong: #172338;
+      --surface-muted: rgba(17, 28, 45, 0.85);
+      --input-bg: #0d1726;
+      --text: #edf3fb;
+      --muted: #a8b7ca;
+      --muted-strong: #d6dfeb;
+      --accent: #72b6ff;
+      --accent-soft: rgba(114, 182, 255, 0.18);
+      --accent-deep: #b7d9ff;
+      --ring: rgba(114, 182, 255, 0.28);
+      --danger: #ff7b88;
+      --danger-soft: rgba(255, 123, 136, 0.16);
+      --warning: #ffb454;
+      --warning-soft: rgba(255, 180, 84, 0.16);
+      --success: #b6c7db;
+      --success-soft: rgba(182, 199, 219, 0.14);
+      --shadow: 0 18px 60px rgba(0, 0, 0, 0.42);
+      --shadow-soft: 0 8px 24px rgba(0, 0, 0, 0.28);
+      --shadow-card:
+        0 20px 48px rgba(0, 0, 0, 0.36),
+        0 8px 20px rgba(0, 0, 0, 0.24),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      --shadow-card-hover:
+        0 24px 56px rgba(0, 0, 0, 0.42),
+        0 10px 24px rgba(0, 0, 0, 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      --border: rgba(173, 191, 214, 0.14);
+      --border-strong: rgba(173, 191, 214, 0.22);
+      --divider: rgba(173, 191, 214, 0.14);
+      --body-glow-left: rgba(55, 130, 220, 0.22);
+      --body-glow-right: rgba(209, 72, 104, 0.14);
+      --body-gradient-top: #0c1625;
+      --body-gradient-bottom: var(--bg);
+      --issue-highlight: rgba(255, 255, 255, 0.04);
     }
 
     * {
       box-sizing: border-box;
+    }
+
+    html {
+      color-scheme: light;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      html {
+        color-scheme: dark;
+      }
     }
 
     body {
@@ -35,9 +197,9 @@
       font-family: "Segoe UI", "Malgun Gothic", sans-serif;
       color: var(--text);
       background:
-        radial-gradient(circle at top left, rgba(11, 107, 203, 0.14), transparent 28%),
-        radial-gradient(circle at top right, rgba(211, 63, 73, 0.10), transparent 22%),
-        linear-gradient(180deg, #f7fafe 0%, var(--bg) 100%);
+        radial-gradient(circle at top left, var(--body-glow-left), transparent 28%),
+        radial-gradient(circle at top right, var(--body-glow-right), transparent 22%),
+        linear-gradient(180deg, var(--body-gradient-top) 0%, var(--body-gradient-bottom) 100%);
       min-height: 100vh;
     }
 
@@ -64,7 +226,7 @@
       padding: 14px 16px;
       border: 1px solid var(--border);
       border-radius: 16px;
-      background: rgba(255, 255, 255, 0.92);
+      background: var(--panel-soft);
       box-shadow: var(--shadow);
       color: var(--text);
       font: inherit;
@@ -103,7 +265,7 @@
       border: 1px solid var(--border);
       border-radius: 16px;
       padding: 12px 14px;
-      box-shadow: 0 8px 24px rgba(18, 39, 61, 0.06);
+      box-shadow: var(--shadow-soft);
     }
 
     .control-card strong {
@@ -134,7 +296,7 @@
       border-radius: 12px;
       font: inherit;
       color: var(--text);
-      background: #fff;
+      background: var(--input-bg);
     }
 
     .control-card select {
@@ -145,7 +307,7 @@
       border-radius: 12px;
       font: inherit;
       color: var(--text);
-      background: #fff;
+      background: var(--input-bg);
     }
 
     .filter-list {
@@ -162,11 +324,11 @@
     }
 
     .stat {
-      background: rgba(255,255,255,0.86);
+      background: var(--panel-soft);
       border: 1px solid var(--border);
       border-radius: 18px;
       padding: 16px 18px;
-      box-shadow: 0 10px 28px rgba(18, 39, 61, 0.06);
+      box-shadow: var(--shadow-soft);
     }
 
     .stat .label {
@@ -226,14 +388,11 @@
       display: flex;
       flex-direction: column;
       gap: 14px;
-      background: rgba(255, 255, 255, 0.98);
+      background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 26px;
       padding: 24px 24px 22px 62px;
-      box-shadow:
-        0 18px 40px rgba(18, 39, 61, 0.14),
-        0 6px 18px rgba(18, 39, 61, 0.08),
-        inset 0 1px 0 rgba(255, 255, 255, 0.85);
+      box-shadow: var(--shadow-card);
       overflow: hidden;
       transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
       min-height: 236px;
@@ -245,7 +404,7 @@
       inset: 0;
       background:
         radial-gradient(circle at top right, rgba(11, 107, 203, 0.08), transparent 34%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.28), transparent 38%);
+        linear-gradient(180deg, var(--issue-highlight), transparent 38%);
       pointer-events: none;
     }
 
@@ -325,15 +484,12 @@
       box-shadow:
         0 22px 46px rgba(211, 63, 73, 0.16),
         0 8px 20px rgba(211, 63, 73, 0.08),
-        inset 0 1px 0 rgba(255, 255, 255, 0.85);
+        inset 0 1px 0 var(--issue-highlight);
     }
 
     .issue-card:hover {
       transform: translateY(-4px);
-      box-shadow:
-        0 24px 54px rgba(18, 39, 61, 0.18),
-        0 10px 22px rgba(18, 39, 61, 0.10),
-        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      box-shadow: var(--shadow-card-hover);
     }
 
     .issue-meta {
@@ -424,7 +580,7 @@
       gap: 10px;
       margin-top: auto;
       padding-top: 12px;
-      border-top: 1px solid rgba(18, 39, 61, 0.08);
+      border-top: 1px solid var(--divider);
       position: relative;
       z-index: 1;
     }
@@ -453,8 +609,8 @@
       padding: 34px 18px;
       text-align: center;
       color: var(--muted);
-      background: rgba(255, 255, 255, 0.8);
-      border: 1px dashed rgba(18, 39, 61, 0.14);
+      background: var(--surface-muted);
+      border: 1px dashed var(--border-strong);
       border-radius: 20px;
     }
 
@@ -542,6 +698,10 @@
             <label><input type="checkbox" id="soundToggle" checked> 새 이슈가 오면 소리 재생</label>
           </div>
           <div class="control-card">
+            <strong>색 테마</strong>
+            <label><input type="checkbox" id="invertThemeToggle"> 시스템 테마 반전해서 보기</label>
+          </div>
+          <div class="control-card">
             <strong>자동 새로고침 주기</strong>
             <div style="color: var(--muted); font-size: 14px;">초 단위로 입력하면 해당 주기로 자동 갱신합니다.</div>
             <input type="number" id="refreshSecondsInput" min="3" step="1" value="10">
@@ -573,9 +733,11 @@
     const LOAD_MORE_STEP = 10;
 
     const issuesEl = document.getElementById("issues");
+    const rootEl = document.documentElement;
     const issueCountEl = document.getElementById("issueCount");
     const issueCountLabelEl = document.getElementById("issueCountLabel");
     const soundToggleEl = document.getElementById("soundToggle");
+    const invertThemeToggleEl = document.getElementById("invertThemeToggle");
     const refreshSecondsInputEl = document.getElementById("refreshSecondsInput");
     const filterTrustedNewsEl = document.getElementById("filterTrustedNews");
     const filterGoogleNewsEl = document.getElementById("filterGoogleNews");
@@ -587,6 +749,8 @@
     const sidebarToggleLabelEl = document.getElementById("sidebarToggleLabel");
     const loadMoreStatusEl = document.getElementById("loadMoreStatus");
     const loadMoreTriggerEl = document.getElementById("loadMoreTrigger");
+    const THEME_INVERT_STORAGE_KEY = "dashboard-theme-inverted";
+    const systemThemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
 
     let previousIds = new Set();
     let hasLoadedOnce = false;
@@ -604,6 +768,35 @@
         dateStyle: "short",
         timeStyle: "medium",
       }).format(date);
+    }
+
+    function isSystemDarkTheme() {
+      return systemThemeQuery.matches;
+    }
+
+    function applyThemePreference() {
+      const shouldInvert = invertThemeToggleEl.checked;
+      const effectiveTheme = shouldInvert
+        ? (isSystemDarkTheme() ? "light" : "dark")
+        : (isSystemDarkTheme() ? "dark" : "light");
+      rootEl.setAttribute("data-theme", effectiveTheme);
+    }
+
+    function loadThemePreference() {
+      try {
+        invertThemeToggleEl.checked = localStorage.getItem(THEME_INVERT_STORAGE_KEY) === "true";
+      } catch (error) {
+        invertThemeToggleEl.checked = false;
+      }
+      applyThemePreference();
+    }
+
+    function persistThemePreference() {
+      try {
+        localStorage.setItem(THEME_INVERT_STORAGE_KEY, String(invertThemeToggleEl.checked));
+      } catch (error) {
+        console.warn("theme preference save error", error);
+      }
     }
 
     function escapeHtml(value) {
@@ -864,6 +1057,11 @@
       restartAutoRefresh();
     });
 
+    invertThemeToggleEl.addEventListener("change", () => {
+      persistThemePreference();
+      applyThemePreference();
+    });
+
     [filterTrustedNewsEl, filterGoogleNewsEl, filterTruthSocialEl, filterXEl, filterYoutubeEl].forEach((element) => {
       element.addEventListener("change", () => {
         renderIssues(latestIssues, new Set());
@@ -878,6 +1076,13 @@
       syncSidebarForViewport();
     });
 
+    if (typeof systemThemeQuery.addEventListener === "function") {
+      systemThemeQuery.addEventListener("change", applyThemePreference);
+    } else if (typeof systemThemeQuery.addListener === "function") {
+      systemThemeQuery.addListener(applyThemePreference);
+    }
+
+    loadThemePreference();
     window.addEventListener("resize", syncSidebarForViewport);
     loadMoreObserver = new IntersectionObserver((entries) => {
       for (const entry of entries) {
