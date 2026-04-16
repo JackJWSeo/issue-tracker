@@ -23,6 +23,11 @@ class UISettings:
         "lara, lara trump, 라라, 라라 트럼프, "
         "vanessa trump, 바네사 트럼프, kai trump, 카이 트럼프"
     )
+    collect_trusted_news_enabled: bool = True
+    collect_google_news_enabled: bool = True
+    collect_truthsocial_enabled: bool = True
+    collect_x_enabled: bool = True
+    collect_youtube_enabled: bool = True
     include_topic: bool = True
     include_source: bool = True
     include_time: bool = True

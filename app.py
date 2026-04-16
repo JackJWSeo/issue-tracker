@@ -23,8 +23,8 @@ from sources.trusted_news import (
 )
 from sources.truth_social import fetch_truthsocial_posts
 from sources.x_monitor import fetch_x_posts
+from sources.translation import enrich_item_translations
 from sources.youtube_live import fetch_youtube_live
-from sources.youtube_stt import enrich_item_with_stt_summary
 from query_settings import build_google_news_query_groups, load_query_targets
 from ui_settings import UISettings, load_ui_settings
 from utils import (
@@ -68,32 +68,41 @@ def collect_items(db: StateDB, settings: UISettings, log: LogFn = default_log) -
     results: list[Item] = []
     targets = load_query_targets()
 
-    for username in targets["x_accounts"]:
-        log(f"[X] 수집 시작: {username}")
-        try:
-            rows = apply_time_filter(fetch_x_posts(username, X_BEARER_TOKEN, db), f"X:{username}", settings, log=log)
-            results.extend(rows)
-            log(f"[X] 수집 완료: {username} items={len(rows)}")
-        except Exception as e:
-            log(f"[X] {username} 실패: {e}")
+    if settings.collect_x_enabled:
+        for username in targets["x_accounts"]:
+            log(f"[X] 수집 시작: {username}")
+            try:
+                rows = apply_time_filter(fetch_x_posts(username, X_BEARER_TOKEN, db), f"X:{username}", settings, log=log)
+                results.extend(rows)
+                log(f"[X] 수집 완료: {username} items={len(rows)}")
+            except Exception as e:
+                log(f"[X] {username} 실패: {e}")
+    else:
+        log("[X] 수집 비활성화")
 
-    for username in targets["truthsocial_accounts"]:
-        log(f"[TRUTH] 수집 시작: {username}")
-        try:
-            rows = apply_time_filter(fetch_truthsocial_posts(username, db), f"TRUTH:{username}", settings, log=log)
-            results.extend(rows)
-            log(f"[TRUTH] 수집 완료: {username} items={len(rows)}")
-        except Exception as e:
-            log(f"[TRUTH] {username} 실패: {e}")
+    if settings.collect_truthsocial_enabled:
+        for username in targets["truthsocial_accounts"]:
+            log(f"[TRUTH] 수집 시작: {username}")
+            try:
+                rows = apply_time_filter(fetch_truthsocial_posts(username, db), f"TRUTH:{username}", settings, log=log)
+                results.extend(rows)
+                log(f"[TRUTH] 수집 완료: {username} items={len(rows)}")
+            except Exception as e:
+                log(f"[TRUTH] {username} 실패: {e}")
+    else:
+        log("[TRUTH] 수집 비활성화")
 
-    for query in targets["youtube_queries"]:
-        log(f"[YT] 수집 시작: {query}")
-        try:
-            rows = apply_time_filter(fetch_youtube_live(query, YOUTUBE_API_KEY), f"YT:{query}", settings, log=log)
-            results.extend(rows)
-            log(f"[YT] 수집 완료: {query} items={len(rows)}")
-        except Exception as e:
-            log(f"[YT] {query} 실패: {e}")
+    if settings.collect_youtube_enabled:
+        for query in targets["youtube_queries"]:
+            log(f"[YT] 수집 시작: {query}")
+            try:
+                rows = apply_time_filter(fetch_youtube_live(query, YOUTUBE_API_KEY), f"YT:{query}", settings, log=log)
+                results.extend(rows)
+                log(f"[YT] 수집 완료: {query} items={len(rows)}")
+            except Exception as e:
+                log(f"[YT] {query} 실패: {e}")
+    else:
+        log("[YT] 수집 비활성화")
 
     trusted_snapshot_entries: list[dict[str, str]] = []
     trusted_succeeded_publishers: set[str] = set()
@@ -104,80 +113,87 @@ def collect_items(db: StateDB, settings: UISettings, log: LogFn = default_log) -
             f"[NEWS][IGNORE] 사용자 무시 매체 로드 "
             f"count={len(ignored_publishers)} publishers={sorted(ignored_publishers)}"
         )
-    try:
-        trusted_snapshot_entries, trusted_succeeded_publishers, trusted_failed_publishers = fetch_trusted_feed_snapshot()
-        log(
-            f"[NEWS][TRUSTED] 피드 스냅샷 완료 "
-            f"entries={len(trusted_snapshot_entries)} "
-            f"trusted_ok={sorted(trusted_succeeded_publishers)} "
-            f"trusted_fallback={sorted(trusted_failed_publishers)}"
-        )
-    except Exception as e:
-        log(f"[NEWS][TRUSTED] 피드 스냅샷 실패: {e}")
+    if settings.collect_trusted_news_enabled:
+        try:
+            trusted_snapshot_entries, trusted_succeeded_publishers, trusted_failed_publishers = fetch_trusted_feed_snapshot()
+            log(
+                f"[NEWS][TRUSTED] 피드 스냅샷 완료 "
+                f"entries={len(trusted_snapshot_entries)} "
+                f"trusted_ok={sorted(trusted_succeeded_publishers)} "
+                f"trusted_fallback={sorted(trusted_failed_publishers)}"
+            )
+        except Exception as e:
+            log(f"[NEWS][TRUSTED] 피드 스냅샷 실패: {e}")
+    else:
+        log("[NEWS][TRUSTED] 수집 비활성화")
 
     # NOTE:
     # Google News는 query별 개별 호출보다 OR 그룹 호출이 훨씬 빠르다.
     # 따라서 news_queries 전체를 소그룹으로 묶어 한 번씩만 호출하고,
     # 받은 결과를 아래에서 다시 원래 query별 bucket으로 분배한다.
-    google_news_groups = build_google_news_query_groups(targets["news_queries"], group_size=4)
     google_rows_by_query: dict[str, list[Item]] = {query: [] for query in targets["news_queries"]}
-    for group in google_news_groups:
-        group_queries = list(group["queries"])
-        group_query = str(group["search_query"])
-        group_label = str(group["label"])
-        try:
-            group_rows, google_stats = fetch_google_news_rss(
-                group_query,
-                recent_hours=settings.recent_hours if settings.use_recent_hours_filter else None,
-                excluded_publishers=sorted(trusted_succeeded_publishers | ignored_publishers),
-                source_label=group_label,
+    if settings.collect_google_news_enabled:
+        google_news_groups = build_google_news_query_groups(targets["news_queries"], group_size=4)
+        for group in google_news_groups:
+            group_queries = list(group["queries"])
+            group_query = str(group["search_query"])
+            group_label = str(group["label"])
+            try:
+                group_rows, google_stats = fetch_google_news_rss(
+                    group_query,
+                    recent_hours=settings.recent_hours if settings.use_recent_hours_filter else None,
+                    excluded_publishers=sorted(trusted_succeeded_publishers | ignored_publishers),
+                    source_label=group_label,
+                )
+            except Exception as e:
+                log(f"[NEWS][GOOGLE-GROUP] {group_label} 실패: {e}")
+                group_rows = []
+                google_stats = {
+                    "rss_raw_items": 0,
+                    "publisher_filtered": 0,
+                    "pre_filter_passed": 0,
+                    "verified_passed": 0,
+                    "accepted": 0,
+                }
+
+            for row in group_rows:
+                for query in group_queries:
+                    if matches_news_query(
+                        query,
+                        row.title,
+                        row.body,
+                        row.translated_title,
+                        row.translated_body,
+                    ):
+                        google_rows_by_query[query].append(row)
+
+            log(
+                f"[NEWS][GOOGLE-GROUP] 수집 완료: {group_label} "
+                f"rss_raw={google_stats['rss_raw_items']} "
+                f"publisher_filtered={google_stats['publisher_filtered']} "
+                f"pre_filter={google_stats['pre_filter_passed']} "
+                f"verified={google_stats['verified_passed']} "
+                f"google_total={len(group_rows)}"
             )
-        except Exception as e:
-            log(f"[NEWS][GOOGLE-GROUP] {group_label} 실패: {e}")
-            group_rows = []
-            google_stats = {
-                "rss_raw_items": 0,
-                "publisher_filtered": 0,
-                "pre_filter_passed": 0,
-                "verified_passed": 0,
-                "accepted": 0,
-            }
-
-        for row in group_rows:
-            for query in group_queries:
-                if matches_news_query(
-                    query,
-                    row.title,
-                    row.body,
-                    row.translated_title,
-                    row.translated_body,
-                ):
-                    google_rows_by_query[query].append(row)
-
-        log(
-            f"[NEWS][GOOGLE-GROUP] 수집 완료: {group_label} "
-            f"rss_raw={google_stats['rss_raw_items']} "
-            f"publisher_filtered={google_stats['publisher_filtered']} "
-            f"pre_filter={google_stats['pre_filter_passed']} "
-            f"verified={google_stats['verified_passed']} "
-            f"google_total={len(group_rows)}"
-        )
+    else:
+        log("[NEWS][GOOGLE] 수집 비활성화")
 
     trusted_rows_by_query: dict[str, list[Item]] = {query: [] for query in targets["news_queries"]}
-    try:
-        trusted_rows_by_query = fetch_trusted_news_articles_grouped_from_snapshot(
-            trusted_snapshot_entries,
-            targets["news_queries"],
-            recent_hours=settings.recent_hours if settings.use_recent_hours_filter else None,
-        )
-        trusted_total = sum(len(rows) for rows in trusted_rows_by_query.values())
-        log(
-            f"[NEWS][TRUSTED-GROUP] 수집 완료 "
-            f"queries={len(targets['news_queries'])} trusted_total={trusted_total} "
-            f"trusted_ok={sorted(trusted_succeeded_publishers)} trusted_fallback={sorted(trusted_failed_publishers)}"
-        )
-    except Exception as e:
-        log(f"[NEWS][TRUSTED-GROUP] 실패: {e}")
+    if settings.collect_trusted_news_enabled:
+        try:
+            trusted_rows_by_query = fetch_trusted_news_articles_grouped_from_snapshot(
+                trusted_snapshot_entries,
+                targets["news_queries"],
+                recent_hours=settings.recent_hours if settings.use_recent_hours_filter else None,
+            )
+            trusted_total = sum(len(rows) for rows in trusted_rows_by_query.values())
+            log(
+                f"[NEWS][TRUSTED-GROUP] 수집 완료 "
+                f"queries={len(targets['news_queries'])} trusted_total={trusted_total} "
+                f"trusted_ok={sorted(trusted_succeeded_publishers)} trusted_fallback={sorted(trusted_failed_publishers)}"
+            )
+        except Exception as e:
+            log(f"[NEWS][TRUSTED-GROUP] 실패: {e}")
 
     # NOTE:
     # 개별 query 로그는 네트워크 재검색이 아니라, 이미 모은 trusted/google 결과를
@@ -234,7 +250,7 @@ async def monitor_loop(
                     if db.has_seen(item.item_id) or db.has_ignored(item.item_id):
                         continue
 
-                    item = enrich_item_with_stt_summary(item, ai_client)
+                    item = enrich_item_translations(item)
                     item.priority_score = compute_priority(
                         " ".join(part for part in (item.title, item.translated_title) if part),
                         " ".join(part for part in (item.body, item.translated_body) if part),

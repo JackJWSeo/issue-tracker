@@ -30,6 +30,11 @@ class MonitorUI:
         self.use_recent_hours_filter_var = tk.BooleanVar(value=self.settings.use_recent_hours_filter)
         self.recent_hours_var = tk.IntVar(value=self.settings.recent_hours)
         self.exclude_keywords_var = tk.StringVar(value=self.settings.exclude_keywords)
+        self.collect_trusted_news_enabled_var = tk.BooleanVar(value=self.settings.collect_trusted_news_enabled)
+        self.collect_google_news_enabled_var = tk.BooleanVar(value=self.settings.collect_google_news_enabled)
+        self.collect_truthsocial_enabled_var = tk.BooleanVar(value=self.settings.collect_truthsocial_enabled)
+        self.collect_x_enabled_var = tk.BooleanVar(value=self.settings.collect_x_enabled)
+        self.collect_youtube_enabled_var = tk.BooleanVar(value=self.settings.collect_youtube_enabled)
         self.include_topic_var = tk.BooleanVar(value=self.settings.include_topic)
         self.include_source_var = tk.BooleanVar(value=self.settings.include_source)
         self.include_time_var = tk.BooleanVar(value=self.settings.include_time)
@@ -109,6 +114,23 @@ class MonitorUI:
         exclude_entry.grid(row=3, column=1, columnspan=3, sticky="ew", pady=(10, 0))
         exclude_entry.bind("<KeyRelease>", lambda _event: self.on_setting_changed())
 
+        source_frame = ttk.LabelFrame(side_panel, text="수집 매체", padding=12)
+        source_frame.grid(row=1, column=0, sticky="ew", pady=(0, 12))
+        source_checkboxes = [
+            ("주요 언론 RSS", self.collect_trusted_news_enabled_var),
+            ("구글 뉴스 RSS", self.collect_google_news_enabled_var),
+            ("트루스소셜", self.collect_truthsocial_enabled_var),
+            ("X", self.collect_x_enabled_var),
+            ("유튜브", self.collect_youtube_enabled_var),
+        ]
+        for index, (label, var) in enumerate(source_checkboxes):
+            ttk.Checkbutton(
+                source_frame,
+                text=label,
+                variable=var,
+                command=self.on_setting_changed,
+            ).grid(row=index, column=0, sticky="w", pady=4)
+
         checkboxes = [
             ("텔레그램으로 메시지 전송", self.telegram_enabled_var),
             ("분류 포함", self.include_topic_var),
@@ -128,14 +150,14 @@ class MonitorUI:
             ).grid(row=index // 2, column=index % 2, sticky="w", padx=(0, 18), pady=6)
 
         button_row = ttk.LabelFrame(side_panel, text="실행 제어", padding=12)
-        button_row.grid(row=1, column=0, sticky="ew", pady=(0, 12))
+        button_row.grid(row=2, column=0, sticky="ew", pady=(0, 12))
 
         ttk.Button(button_row, text="설정 저장", command=self.save_settings).pack(side="left")
         ttk.Button(button_row, text="모니터 시작", command=self.start_monitoring).pack(side="left", padx=8)
         ttk.Button(button_row, text="모니터 중지", command=self.stop_monitoring).pack(side="left")
 
         status_frame = ttk.LabelFrame(side_panel, text="상태", padding=12)
-        status_frame.grid(row=2, column=0, sticky="ew")
+        status_frame.grid(row=3, column=0, sticky="ew")
         ttk.Label(status_frame, textvariable=self.status_var).pack(anchor="w")
 
         preview_frame = ttk.LabelFrame(container, text="메시지 미리보기", padding=12)
@@ -160,6 +182,11 @@ class MonitorUI:
             use_recent_hours_filter=self.use_recent_hours_filter_var.get(),
             recent_hours=max(1, int(self.recent_hours_var.get() or 24)),
             exclude_keywords=self.exclude_keywords_var.get().strip(),
+            collect_trusted_news_enabled=self.collect_trusted_news_enabled_var.get(),
+            collect_google_news_enabled=self.collect_google_news_enabled_var.get(),
+            collect_truthsocial_enabled=self.collect_truthsocial_enabled_var.get(),
+            collect_x_enabled=self.collect_x_enabled_var.get(),
+            collect_youtube_enabled=self.collect_youtube_enabled_var.get(),
             include_topic=self.include_topic_var.get(),
             include_source=self.include_source_var.get(),
             include_time=self.include_time_var.get(),
@@ -173,6 +200,18 @@ class MonitorUI:
         lines = []
         lines.append(f"모니터링 주기: {settings.monitor_poll_seconds}초")
         lines.append("텔레그램 전송: 켜짐" if settings.telegram_enabled else "텔레그램 전송: 꺼짐")
+        enabled_sources = []
+        if settings.collect_trusted_news_enabled:
+            enabled_sources.append("주요 언론")
+        if settings.collect_google_news_enabled:
+            enabled_sources.append("구글 뉴스")
+        if settings.collect_truthsocial_enabled:
+            enabled_sources.append("트루스소셜")
+        if settings.collect_x_enabled:
+            enabled_sources.append("X")
+        if settings.collect_youtube_enabled:
+            enabled_sources.append("유튜브")
+        lines.append("수집 매체: " + (", ".join(enabled_sources) if enabled_sources else "없음"))
         if settings.include_topic:
             lines.append("분류: 이란 전쟁 관련")
         if settings.include_source:
