@@ -56,8 +56,17 @@ POLL_SECONDS = int(get_secret("POLL_SECONDS", "45"))
 DB_PATH = get_secret("DB_PATH", str(APP_BASE_DIR / "trump_monitor.sqlite3"))
 REQUEST_TIMEOUT = int(get_secret("REQUEST_TIMEOUT", "20"))
 OPENAI_SUMMARY_MODEL = get_secret("OPENAI_SUMMARY_MODEL", "gpt-4.1-mini")
+OPENAI_TRANSLATION_MODEL = get_secret("OPENAI_TRANSLATION_MODEL", "gpt-4.1-mini")
 USE_AI_IRAN_WAR_FILTER = get_secret("USE_AI_IRAN_WAR_FILTER", "1").lower() in {"1", "true", "yes", "on"}
 LOCAL_TIMEZONE = get_secret("LOCAL_TIMEZONE", "Asia/Seoul")
+SEEN_RETENTION_DAYS = max(1, int(get_secret("SEEN_RETENTION_DAYS", "21")))
+IGNORED_RETENTION_DAYS = max(1, int(get_secret("IGNORED_RETENTION_DAYS", "14")))
+TITLE_DEDUPE_LOOKBACK_DAYS = max(1, int(get_secret("TITLE_DEDUPE_LOOKBACK_DAYS", "14")))
+TITLE_DEDUPE_MAX_CANDIDATES = max(100, int(get_secret("TITLE_DEDUPE_MAX_CANDIDATES", "1500")))
+DB_CLEANUP_INTERVAL_SECONDS = max(300, int(get_secret("DB_CLEANUP_INTERVAL_SECONDS", "21600")))
+MONITOR_LOG_PATH = get_secret("MONITOR_LOG_PATH", str(APP_BASE_DIR / "monitor.log"))
+MONITOR_LOG_MAX_BYTES = max(1024 * 1024, int(get_secret("MONITOR_LOG_MAX_BYTES", str(5 * 1024 * 1024))))
+MONITOR_LOG_BACKUP_COUNT = max(1, int(get_secret("MONITOR_LOG_BACKUP_COUNT", "5")))
 WEB_DASHBOARD_ALLOW_PUBLIC = get_secret("WEB_DASHBOARD_ALLOW_PUBLIC", "0").lower() in {"1", "true", "yes", "on"}
 WEB_DASHBOARD_ALLOWED_HOSTS = [
     host.strip().lower()

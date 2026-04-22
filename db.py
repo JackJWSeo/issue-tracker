@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from models import Item
 from utils import (
@@ -17,6 +17,11 @@ class StateDB:
 
     def _init_db(self):
         cur = self.conn.cursor()
+        try:
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA synchronous=NORMAL")
+        except sqlite3.OperationalError:
+            pass
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS seen_items (
@@ -79,6 +84,24 @@ class StateDB:
             """
         )
         self._backfill_priority_fields(cur)
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_seen_items_topic_created_at
+            ON seen_items(topic_tag, created_at DESC)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_seen_items_created_at
+            ON seen_items(created_at DESC)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ignored_items_created_at
+            ON ignored_items(created_at DESC)
+            """
+        )
         self.conn.commit()
 
     def _backfill_priority_fields(self, cur: sqlite3.Cursor) -> None:
@@ -156,32 +179,36 @@ class StateDB:
         title: str,
         topic_tag: str = "",
         threshold: float = 0.95,
+        lookback_days: int | None = None,
+        max_candidates: int = 1500,
     ) -> tuple[str, str, float, int]:
         normalized_title = normalize_title_for_dedupe(title)
         if not normalized_title:
             return "", "", 0.0, 0
 
         cur = self.conn.cursor()
+        params: list[object] = []
+        where_clauses = [
+            "normalized_title IS NOT NULL",
+            "normalized_title != ''",
+        ]
         if topic_tag:
-            cur.execute(
-                """
-                SELECT item_id, title, normalized_title, duplicate_count
-                FROM seen_items
-                WHERE normalized_title IS NOT NULL
-                  AND normalized_title != ''
-                  AND topic_tag = ?
-                """,
-                (topic_tag,),
-            )
-        else:
-            cur.execute(
-                """
-                SELECT item_id, title, normalized_title, duplicate_count
-                FROM seen_items
-                WHERE normalized_title IS NOT NULL
-                  AND normalized_title != ''
-                """
-            )
+            where_clauses.append("topic_tag = ?")
+            params.append(topic_tag)
+        if lookback_days is not None and lookback_days > 0:
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=int(lookback_days))).isoformat()
+            where_clauses.append("created_at >= ?")
+            params.append(cutoff)
+
+        sql = f"""
+            SELECT item_id, title, normalized_title, duplicate_count
+            FROM seen_items
+            WHERE {" AND ".join(where_clauses)}
+            ORDER BY created_at DESC
+            LIMIT ?
+        """
+        params.append(max(1, int(max_candidates)))
+        cur.execute(sql, tuple(params))
 
         best_item_id = ""
         best_title = ""
@@ -255,6 +282,22 @@ class StateDB:
             ),
         )
         self.conn.commit()
+
+    def prune_old_items(
+        self,
+        seen_retention_days: int,
+        ignored_retention_days: int,
+    ) -> tuple[int, int]:
+        cur = self.conn.cursor()
+        seen_cutoff = (datetime.now(timezone.utc) - timedelta(days=max(1, int(seen_retention_days)))).isoformat()
+        ignored_cutoff = (datetime.now(timezone.utc) - timedelta(days=max(1, int(ignored_retention_days)))).isoformat()
+
+        cur.execute("DELETE FROM seen_items WHERE created_at < ?", (seen_cutoff,))
+        deleted_seen = int(cur.rowcount or 0)
+        cur.execute("DELETE FROM ignored_items WHERE created_at < ?", (ignored_cutoff,))
+        deleted_ignored = int(cur.rowcount or 0)
+        self.conn.commit()
+        return deleted_seen, deleted_ignored
 
     def close(self) -> None:
         self.conn.close()

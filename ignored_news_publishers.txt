@@ -6,3 +6,6 @@
 # breitbart
 # the gateway pundit
 crowdfund insider
+chosun
+chosunilbo
+조선일보

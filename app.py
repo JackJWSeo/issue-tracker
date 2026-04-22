@@ -1,14 +1,25 @@
 import asyncio
+import argparse
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
+from traceback import format_exc
 
 from config import (
+    DB_CLEANUP_INTERVAL_SECONDS,
     DB_PATH,
+    IGNORED_RETENTION_DAYS,
+    MONITOR_LOG_BACKUP_COUNT,
+    MONITOR_LOG_MAX_BYTES,
+    MONITOR_LOG_PATH,
     OPENAI_API_KEY,
     POLL_SECONDS,
+    SEEN_RETENTION_DAYS,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID,
+    TITLE_DEDUPE_LOOKBACK_DAYS,
+    TITLE_DEDUPE_MAX_CANDIDATES,
     X_BEARER_TOKEN,
     YOUTUBE_API_KEY,
 )
@@ -31,6 +42,7 @@ from utils import (
     classify_priority_level,
     classify_trump_content,
     compute_priority,
+    is_question_headline,
     is_within_recent_hours,
     matches_news_query,
     match_exclude_keyword,
@@ -43,6 +55,61 @@ LogFn = Callable[[str], None]
 
 def default_log(message: str) -> None:
     print(message)
+
+
+class RotatingFileLog:
+    def __init__(self, path: str, max_bytes: int, backup_count: int):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.max_bytes = max(1024 * 1024, int(max_bytes))
+        self.backup_count = max(1, int(backup_count))
+        self._lock = threading.Lock()
+
+    def write(self, message: str) -> None:
+        line = message.rstrip("\n") + "\n"
+        encoded = line.encode("utf-8", errors="replace")
+        with self._lock:
+            self._rotate_if_needed(len(encoded))
+            with self.path.open("ab") as fp:
+                fp.write(encoded)
+
+    def _rotate_if_needed(self, incoming_bytes: int) -> None:
+        if not self.path.exists():
+            return
+        current_size = self.path.stat().st_size
+        if current_size + incoming_bytes <= self.max_bytes:
+            return
+
+        oldest_backup = self.path.with_name(f"{self.path.name}.{self.backup_count}")
+        if oldest_backup.exists():
+            oldest_backup.unlink()
+
+        for index in range(self.backup_count - 1, 0, -1):
+            src = self.path.with_name(f"{self.path.name}.{index}")
+            dst = self.path.with_name(f"{self.path.name}.{index + 1}")
+            if src.exists():
+                src.replace(dst)
+
+        first_backup = self.path.with_name(f"{self.path.name}.1")
+        self.path.replace(first_backup)
+
+
+def build_runtime_logger(extra_log: LogFn | None = None) -> LogFn:
+    file_log = RotatingFileLog(
+        path=MONITOR_LOG_PATH,
+        max_bytes=MONITOR_LOG_MAX_BYTES,
+        backup_count=MONITOR_LOG_BACKUP_COUNT,
+    )
+
+    def log(message: str) -> None:
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        line = f"[{timestamp}] {message}"
+        print(line)
+        file_log.write(line)
+        if extra_log is not None:
+            extra_log(message)
+
+    return log
 
 
 def apply_time_filter(
@@ -235,10 +302,28 @@ async def monitor_loop(
 
         log("[START] Trump Monitor 시작")
         log(f"[INFO] poll={poll_seconds}s db={DB_PATH}")
+        log(
+            "[INFO] retention="
+            f"seen:{SEEN_RETENTION_DAYS}d ignored:{IGNORED_RETENTION_DAYS}d "
+            f"dedupe_lookback:{TITLE_DEDUPE_LOOKBACK_DAYS}d "
+            f"dedupe_candidates:{TITLE_DEDUPE_MAX_CANDIDATES} "
+            f"log={MONITOR_LOG_PATH}"
+        )
+        last_cleanup_at = 0.0
 
         while stop_event is None or not stop_event.is_set():
             try:
                 cycle_started_at = time.time()
+                if last_cleanup_at <= 0 or cycle_started_at - last_cleanup_at >= DB_CLEANUP_INTERVAL_SECONDS:
+                    deleted_seen, deleted_ignored = db.prune_old_items(
+                        seen_retention_days=SEEN_RETENTION_DAYS,
+                        ignored_retention_days=IGNORED_RETENTION_DAYS,
+                    )
+                    log(
+                        "[DB] cleanup "
+                        f"seen_deleted={deleted_seen} ignored_deleted={deleted_ignored}"
+                    )
+                    last_cleanup_at = cycle_started_at
                 log("[LOOP] 새 수집 사이클 시작")
                 items = collect_items(db, settings=settings, log=log)
                 new_count = 0
@@ -257,6 +342,11 @@ async def monitor_loop(
                     )
                     item.priority_level = classify_priority_level(item.priority_score)
                     display_title = item.translated_title or item.title
+                    is_question_title = any(
+                        is_question_headline(candidate)
+                        for candidate in (item.title, item.translated_title)
+                        if candidate
+                    )
                     matched_exclude_keyword = match_exclude_keyword(
                         settings.exclude_keywords,
                         item.title,
@@ -272,7 +362,10 @@ async def monitor_loop(
                     )
                     item.is_iran_war_related = content_topic == "iran_war"
 
-                    if matched_exclude_keyword:
+                    if is_question_title:
+                        log(f"[SKIP] 의문문 제목 제외: {item.source} | {display_title[:80]}")
+                        db.mark_ignored(item)
+                    elif matched_exclude_keyword:
                         log(
                             f"[SKIP] 제외 키워드 일치({matched_exclude_keyword}): "
                             f"{item.source} | {display_title[:80]}"
@@ -286,6 +379,8 @@ async def monitor_loop(
                             item.title,
                             topic_tag=content_topic,
                             threshold=0.95,
+                            lookback_days=TITLE_DEDUPE_LOOKBACK_DAYS,
+                            max_candidates=TITLE_DEDUPE_MAX_CANDIDATES,
                         )
                         if similar_title:
                             updated_duplicate_count = db.increment_duplicate_count(existing_item_id)
@@ -312,6 +407,7 @@ async def monitor_loop(
 
             except Exception as e:
                 log(f"[LOOP ERROR] {e}")
+                log(format_exc())
 
             if stop_event is not None and stop_event.is_set():
                 break
@@ -321,7 +417,35 @@ async def monitor_loop(
         db.close()
 
 
-if __name__ == "__main__":
-    from main_ui import launch_main_ui
+def run_headless() -> None:
+    log = build_runtime_logger()
+    stop_event = threading.Event()
+    try:
+        asyncio.run(monitor_loop(stop_event=stop_event, log=log))
+    except KeyboardInterrupt:
+        stop_event.set()
+        log("[STOP] KeyboardInterrupt로 종료 요청됨")
+    except Exception as e:
+        log(f"[FATAL] {e}")
+        log(format_exc())
+        raise
 
-    launch_main_ui()
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Trump Monitor")
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="UI 없이 콘솔/파일 로그 모드로 모니터를 실행합니다.",
+    )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    if args.headless:
+        run_headless()
+    else:
+        from main_ui import launch_main_ui
+
+        launch_main_ui()

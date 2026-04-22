@@ -1,11 +1,12 @@
 import asyncio
 import threading
+from traceback import format_exc
 import tkinter as tk
 from collections import deque
 from datetime import datetime
 from tkinter import font as tkfont, messagebox, ttk
 
-from app import monitor_loop
+from app import build_runtime_logger, monitor_loop
 from ui_settings import UISettings, load_ui_settings, save_ui_settings
 
 
@@ -252,15 +253,21 @@ class MonitorUI:
         self.append_log("[UI] 모니터 시작")
 
     def run_monitor(self) -> None:
-        asyncio.run(
-            monitor_loop(
-                stop_event=self.stop_event,
-                log=self.append_log,
-                settings=self.build_settings(),
+        log = build_runtime_logger(self.append_log)
+        try:
+            asyncio.run(
+                monitor_loop(
+                    stop_event=self.stop_event,
+                    log=log,
+                    settings=self.build_settings(),
+                )
             )
-        )
-        self.append_log("[UI] 모니터 스레드 종료")
-        self.root.after(0, lambda: self.status_var.set("대기 중"))
+        except Exception as e:
+            log(f"[UI ERROR] 모니터 스레드 비정상 종료: {e}")
+            log(format_exc())
+        finally:
+            self.append_log("[UI] 모니터 스레드 종료")
+            self.root.after(0, lambda: self.status_var.set("대기 중"))
 
     def stop_monitoring(self) -> None:
         if not self.monitor_thread or not self.monitor_thread.is_alive():

@@ -53,6 +53,7 @@ def is_question_headline(title: str) -> bool:
         "뭘",
         "인가",
         "일까",
+        "할까",
         "되나",
         "가능할까",
     )
